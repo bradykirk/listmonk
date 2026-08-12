@@ -106,6 +106,9 @@ func initHTTPHandlers(e *echo.Echo, a *App) {
 		g.GET("/api/analytics/growth", pm(a.GetAnalyticsGrowth, "campaigns:get_analytics"))
 		g.GET("/api/analytics/campaigns", pm(a.GetAnalyticsCampaigns, "campaigns:get_analytics"))
 		g.GET("/api/analytics/cohorts", pm(a.GetAnalyticsCohorts, "campaigns:get_analytics"))
+		g.GET("/api/analytics/campaign-timeline", pm(a.GetAnalyticsCampaignTimeline, "campaigns:get_analytics"))
+		g.GET("/api/analytics/campaign-links", pm(a.GetAnalyticsCampaignLinks, "campaigns:get_analytics"))
+		g.GET("/api/analytics/activity", pm(a.GetAnalyticsActivity, "campaigns:get_analytics"))
 		g.GET("/api/dashboard/counts", a.GetDashboardCounts)
 
 		g.GET("/api/settings", pm(a.GetSettings, "settings:get"))

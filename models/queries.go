@@ -15,6 +15,9 @@ type Queries struct {
 	GetAnalyticsGrowth    *sqlx.Stmt `query:"get-analytics-growth"`
 	GetAnalyticsCampaigns *sqlx.Stmt `query:"get-analytics-campaigns"`
 	GetAnalyticsCohorts   *sqlx.Stmt `query:"get-analytics-cohorts"`
+	GetAnalyticsCampaignTimeline *sqlx.Stmt `query:"get-analytics-campaign-timeline"`
+	GetAnalyticsCampaignLinks    *sqlx.Stmt `query:"get-analytics-campaign-links"`
+	GetAnalyticsActivity         *sqlx.Stmt `query:"get-analytics-activity"`
 	GetDashboardCounts *sqlx.Stmt `query:"get-dashboard-counts"`
 
 	InsertSubscriber                *sqlx.Stmt `query:"insert-subscriber"`

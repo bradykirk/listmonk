@@ -34,7 +34,7 @@ Then rebuild and push the image, and update the tag in Coolify.
 
 | File | Purpose |
 | --- | --- |
-| `queries/analytics.sql` | Three named queries. Each returns one JSON column, matching the existing `get-dashboard-charts` pattern, so the Go layer needs no result structs. |
+| `queries/analytics.sql` | Six named queries. Each returns one JSON column, matching the existing `get-dashboard-charts` pattern, so the Go layer needs no result structs. |
 | `internal/core/analytics.go` | Core methods that run those queries. |
 | `cmd/analytics.go` | HTTP handlers. Note: this directory is `package main`, not `package cmd`. |
 | `frontend/src/views/Analytics.vue` | The page. Uses `chart.js`, which listmonk already bundles — no new dependency. |
@@ -43,11 +43,37 @@ Then rebuild and push the image, and update the tag in Coolify.
 
 | File | Change | If it conflicts |
 | --- | --- | --- |
-| `models/queries.go` | Three `*sqlx.Stmt` fields with `query:` tags. | Re-add the three fields. The tag names must match the `-- name:` headers in `queries/analytics.sql` exactly, or listmonk fails at startup rather than at build. |
-| `cmd/handlers.go` | Three `GET /api/analytics/*` routes. | Re-add them next to the `/api/dashboard/*` routes. They reuse the existing `campaigns:get_analytics` permission — do not invent a new one. |
-| `frontend/src/api/index.js` | Three client functions. | Re-add below `getDashboardCharts`. |
+| `models/queries.go` | Six `*sqlx.Stmt` fields with `query:` tags. | Re-add the three fields. The tag names must match the `-- name:` headers in `queries/analytics.sql` exactly, or listmonk fails at startup rather than at build. |
+| `cmd/handlers.go` | Six `GET /api/analytics/*` routes. | Re-add them next to the `/api/dashboard/*` routes. They reuse the existing `campaigns:get_analytics` permission — do not invent a new one. |
+| `frontend/src/api/index.js` | Six client functions. | Re-add below `getDashboardCharts`. |
 | `frontend/src/router/index.js` | Route `listAnalytics` at `/analytics`. | Re-add near `campaignAnalytics`. |
 | `frontend/src/components/Navigation.vue` | Sidebar item in the campaigns group. | Re-add inside the campaigns `b-menu-item`. |
+
+## What the page shows
+
+Modelled on EmailOctopus's campaign report, after touring that account:
+
+- Audience growth per week, with the running total
+- Engagement cohorts, from "active < 30 days" to "cold 180 days+"
+- Per campaign: sent, opened, didn't open, clicked, didn't click, bounced, complained
+- Per campaign: opens and clicks per hour for the first 48 hours
+- Per campaign: most clicked links, with total and unique counts
+- A recent activity feed of per-subscriber opens and clicks
+
+## Deliberate omissions
+
+- **Unsubscribes per campaign.** listmonk's `unsubscribe-by-campaign` query sets
+  `subscriber_lists.status` and `updated_at` only. It stores no campaign
+  reference, so the count cannot be recovered. The page says so rather than
+  showing a wrong number.
+- **Automation and transactional reports.** `campaign_views.campaign_id` is
+  `NOT NULL`, so an open cannot be recorded without a campaign. A welcome email
+  sent through `/api/tx` will never show an open rate here. EmailOctopus does
+  report these. The only route to that data is an SES configuration set with
+  open tracking, outside listmonk.
+- **Didn't open / didn't click** are derived as `sent` minus the action count.
+  listmonk keeps no per-campaign recipient list, so an exact audience segment is
+  not available.
 
 ## Behaviour notes
 

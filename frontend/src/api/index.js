@@ -117,6 +117,9 @@ export const getDashboardCharts = () => http.get(
 export const getAnalyticsGrowth = (params) => http.get('/api/analytics/growth', { params });
 export const getAnalyticsCampaigns = () => http.get('/api/analytics/campaigns');
 export const getAnalyticsCohorts = (params) => http.get('/api/analytics/cohorts', { params });
+export const getAnalyticsCampaignTimeline = (params) => http.get('/api/analytics/campaign-timeline', { params });
+export const getAnalyticsCampaignLinks = (params) => http.get('/api/analytics/campaign-links', { params });
+export const getAnalyticsActivity = (params) => http.get('/api/analytics/activity', { params });
 
 // Lists.
 export const getLists = (params) => http.get(

@@ -41,3 +41,38 @@ func (c *Core) GetAnalyticsCohorts(listID int) (types.JSONText, error) {
 
 	return out, nil
 }
+
+// GetAnalyticsCampaignTimeline returns hourly opens and clicks for the first
+// 48 hours after a campaign started.
+func (c *Core) GetAnalyticsCampaignTimeline(campID int) (types.JSONText, error) {
+	var out types.JSONText
+	if err := c.q.GetAnalyticsCampaignTimeline.Get(&out, campID); err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "campaign timeline", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}
+
+// GetAnalyticsCampaignLinks returns the most clicked links in a campaign.
+func (c *Core) GetAnalyticsCampaignLinks(campID int) (types.JSONText, error) {
+	var out types.JSONText
+	if err := c.q.GetAnalyticsCampaignLinks.Get(&out, campID); err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "campaign links", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}
+
+// GetAnalyticsActivity returns recent per-subscriber opens and clicks.
+// Pass campID 0 for every campaign.
+func (c *Core) GetAnalyticsActivity(campID int) (types.JSONText, error) {
+	var out types.JSONText
+	if err := c.q.GetAnalyticsActivity.Get(&out, campID); err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "activity", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}

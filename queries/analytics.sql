@@ -41,7 +41,9 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.started_at DESC NULLS LAST), '[]') FROM (
         (SELECT COUNT(DISTINCT lc.subscriber_id)::int
            FROM link_clicks lc WHERE lc.campaign_id = c.id)                           AS unique_clicks,
         (SELECT COUNT(*)::int
-           FROM bounces b WHERE b.campaign_id = c.id)                                 AS bounces
+           FROM bounces b WHERE b.campaign_id = c.id AND b.type <> 'complaint')       AS bounces,
+        (SELECT COUNT(*)::int
+           FROM bounces b WHERE b.campaign_id = c.id AND b.type = 'complaint')        AS complaints
     FROM campaigns c
     LEFT JOIN campaign_views v ON v.campaign_id = c.id
     WHERE c.status = 'finished'
@@ -87,4 +89,80 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.cohort), '[]') FROM (
         COUNT(*)::int AS subscribers
     FROM activity
     GROUP BY 1
+) t;
+
+
+-- name: get-analytics-campaign-timeline
+-- Opens and clicks per hour for the first 48 hours after a campaign started.
+-- generate_series supplies every bucket so the chart has no gaps.
+-- $1: campaign ID.
+SELECT COALESCE(JSON_AGG(t ORDER BY t.hour), '[]') FROM (
+    SELECT h.hour,
+           COALESCE(v.opens, 0)  AS opens,
+           COALESCE(l.clicks, 0) AS clicks
+    FROM generate_series(0, 47) AS h(hour)
+    LEFT JOIN (
+        SELECT FLOOR(EXTRACT(EPOCH FROM (cv.created_at - c.started_at)) / 3600)::int AS hour,
+               COUNT(*)::int AS opens
+        FROM campaign_views cv
+        JOIN campaigns c ON c.id = cv.campaign_id
+        WHERE cv.campaign_id = $1
+        GROUP BY 1
+    ) v ON v.hour = h.hour
+    LEFT JOIN (
+        SELECT FLOOR(EXTRACT(EPOCH FROM (lc.created_at - c.started_at)) / 3600)::int AS hour,
+               COUNT(*)::int AS clicks
+        FROM link_clicks lc
+        JOIN campaigns c ON c.id = lc.campaign_id
+        WHERE lc.campaign_id = $1
+        GROUP BY 1
+    ) l ON l.hour = h.hour
+) t;
+
+
+-- name: get-analytics-campaign-links
+-- Top links for one campaign, with total and unique click counts.
+-- $1: campaign ID.
+SELECT COALESCE(JSON_AGG(t ORDER BY t.clicks DESC), '[]') FROM (
+    SELECT l.url,
+           COUNT(*)::int                          AS clicks,
+           COUNT(DISTINCT lc.subscriber_id)::int  AS unique_clickers
+    FROM link_clicks lc
+    JOIN links l ON l.id = lc.link_id
+    WHERE lc.campaign_id = $1
+    GROUP BY l.url
+    ORDER BY 2 DESC
+    LIMIT 20
+) t;
+
+
+-- name: get-analytics-activity
+-- Recent per-subscriber events, newest first. This is the feed EmailOctopus
+-- shows beside a campaign report.
+--
+-- The joins to subscribers drop rows whose subscriber_id is NULL, which is what
+-- listmonk writes when individual subscriber tracking is off. With that setting
+-- off this returns nothing, and that is correct.
+--
+-- $1: campaign ID, or 0 for every campaign.
+SELECT COALESCE(JSON_AGG(t ORDER BY t.created_at DESC), '[]') FROM (
+    SELECT u.email, u.subscriber_id, u.action, u.created_at, u.campaign
+    FROM (
+        SELECT s.email, s.id AS subscriber_id, 'opened' AS action,
+               v.created_at, c.name AS campaign
+        FROM campaign_views v
+        JOIN subscribers s ON s.id = v.subscriber_id
+        JOIN campaigns c   ON c.id = v.campaign_id
+        WHERE ($1 = 0 OR v.campaign_id = $1)
+
+        UNION ALL
+
+        SELECT s.email, s.id, 'clicked', lc.created_at, c.name
+        FROM link_clicks lc
+        JOIN subscribers s ON s.id = lc.subscriber_id
+        JOIN campaigns c   ON c.id = lc.campaign_id
+        WHERE ($1 = 0 OR lc.campaign_id = $1)
+    ) u
+    ORDER BY u.created_at DESC
+    LIMIT 50
 ) t;
