@@ -76,3 +76,38 @@ func (c *Core) GetAnalyticsActivity(campID int) (types.JSONText, error) {
 
 	return out, nil
 }
+
+// GetAnalyticsSummary returns the headline counts for the KPI row.
+// Pass listID 0 to include every list.
+func (c *Core) GetAnalyticsSummary(listID int) (types.JSONText, error) {
+	var out types.JSONText
+	if err := c.q.GetAnalyticsSummary.Get(&out, listID); err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "analytics summary", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}
+
+// GetAnalyticsDomains returns engagement and bounces per mailbox provider.
+// Pass listID 0 to include every list.
+func (c *Core) GetAnalyticsDomains(listID int) (types.JSONText, error) {
+	var out types.JSONText
+	if err := c.q.GetAnalyticsDomains.Get(&out, listID); err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "domain analytics", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}
+
+// GetAnalyticsSendTimes returns open rates by the weekday and hour of sending.
+func (c *Core) GetAnalyticsSendTimes() (types.JSONText, error) {
+	var out types.JSONText
+	if err := c.q.GetAnalyticsSendTimes.Get(&out); err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "send times", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}

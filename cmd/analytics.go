@@ -88,3 +88,33 @@ func (a *App) GetAnalyticsActivity(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, okResp{out})
 }
+
+// GetAnalyticsSummary returns the headline counts for the KPI row.
+func (a *App) GetAnalyticsSummary(c echo.Context) error {
+	out, err := a.core.GetAnalyticsSummary(listIDParam(c))
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, okResp{out})
+}
+
+// GetAnalyticsDomains returns engagement and bounces per mailbox provider.
+func (a *App) GetAnalyticsDomains(c echo.Context) error {
+	out, err := a.core.GetAnalyticsDomains(listIDParam(c))
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, okResp{out})
+}
+
+// GetAnalyticsSendTimes returns open rates by weekday and hour of sending.
+func (a *App) GetAnalyticsSendTimes(c echo.Context) error {
+	out, err := a.core.GetAnalyticsSendTimes()
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, okResp{out})
+}

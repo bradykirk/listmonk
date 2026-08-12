@@ -28,8 +28,20 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.week), '[]') FROM (
 
 
 -- name: get-analytics-campaigns
--- Per-campaign opens, clicks and bounces. Rates are computed in the frontend so
--- that a zero send count cannot divide by zero here.
+-- Per-campaign opens, clicks, bounces and unsubscribes. Rates are computed in
+-- the frontend so that a zero send count cannot divide by zero here.
+--
+-- Bounces are split by type. Mailbox providers treat them differently: a hard
+-- bounce is a permanent address failure and counts hardest against sender
+-- reputation, a soft bounce is usually a full mailbox or a temporary defer, and
+-- a complaint is a "mark as spam". SES suspends on 5% bounces or 0.1%
+-- complaints, so the two need separate numbers, not one combined figure.
+--
+-- `unsubscribes` is ATTRIBUTED, not exact. listmonk's unsubscribe handler sets
+-- subscriber_lists.status and updated_at and stores no campaign reference, so
+-- the true figure cannot be recovered. This counts unsubscribes from the
+-- campaign's own lists in the 72 hours after it started. Two campaigns sent to
+-- the same list inside one window will both claim the same unsubscribe.
 SELECT COALESCE(JSON_AGG(t ORDER BY t.started_at DESC NULLS LAST), '[]') FROM (
     SELECT
         c.id,
@@ -43,7 +55,18 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.started_at DESC NULLS LAST), '[]') FROM (
         (SELECT COUNT(*)::int
            FROM bounces b WHERE b.campaign_id = c.id AND b.type <> 'complaint')       AS bounces,
         (SELECT COUNT(*)::int
-           FROM bounces b WHERE b.campaign_id = c.id AND b.type = 'complaint')        AS complaints
+           FROM bounces b WHERE b.campaign_id = c.id AND b.type = 'hard')             AS hard_bounces,
+        (SELECT COUNT(*)::int
+           FROM bounces b WHERE b.campaign_id = c.id AND b.type = 'soft')             AS soft_bounces,
+        (SELECT COUNT(*)::int
+           FROM bounces b WHERE b.campaign_id = c.id AND b.type = 'complaint')        AS complaints,
+        (SELECT COUNT(*)::int
+           FROM subscriber_lists sl
+           JOIN campaign_lists cl ON cl.campaign_id = c.id AND cl.list_id = sl.list_id
+          WHERE sl.status = 'unsubscribed'
+            AND c.started_at IS NOT NULL
+            AND sl.updated_at >= c.started_at
+            AND sl.updated_at <  c.started_at + INTERVAL '72 hours')                  AS unsubscribes
     FROM campaigns c
     LEFT JOIN campaign_views v ON v.campaign_id = c.id
     WHERE c.status = 'finished'
@@ -165,4 +188,140 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.created_at DESC), '[]') FROM (
     ) u
     ORDER BY u.created_at DESC
     LIMIT 50
+) t;
+
+
+-- name: get-analytics-summary
+-- The headline numbers, as one JSON object.
+--
+-- Audience counts respect the list filter ($1). Campaign rates do not: a
+-- campaign is sent to a set of lists, so attributing its opens to one list
+-- would be wrong. They cover the last 90 days, which is the window that
+-- reputation at the mailbox providers actually reflects.
+--
+-- Every value is a raw count. Rates are divided in the frontend so that a zero
+-- denominator is a display decision rather than a NULL from the database.
+SELECT JSON_BUILD_OBJECT(
+    'subscribers', (
+        SELECT COUNT(DISTINCT sl.subscriber_id)::int
+        FROM subscriber_lists sl
+        JOIN subscribers s ON s.id = sl.subscriber_id
+        WHERE s.status = 'enabled'
+          AND sl.status <> 'unsubscribed'
+          AND ($1 = 0 OR sl.list_id = $1)
+    ),
+    'joined_30d', (
+        SELECT COUNT(DISTINCT sl.subscriber_id)::int
+        FROM subscriber_lists sl
+        WHERE sl.created_at > NOW() - INTERVAL '30 days'
+          AND ($1 = 0 OR sl.list_id = $1)
+    ),
+    'unsubscribed_30d', (
+        SELECT COUNT(DISTINCT sl.subscriber_id)::int
+        FROM subscriber_lists sl
+        WHERE sl.status = 'unsubscribed'
+          AND sl.updated_at > NOW() - INTERVAL '30 days'
+          AND ($1 = 0 OR sl.list_id = $1)
+    ),
+    'campaigns_90d', (
+        SELECT COUNT(*)::int FROM campaigns
+        WHERE status = 'finished' AND started_at > NOW() - INTERVAL '90 days'
+    ),
+    'sent_90d', (
+        SELECT COALESCE(SUM(sent), 0)::int FROM campaigns
+        WHERE status = 'finished' AND started_at > NOW() - INTERVAL '90 days'
+    ),
+    'opens_90d', (
+        SELECT COALESCE(SUM(n), 0)::int FROM (
+            SELECT COUNT(DISTINCT cv.subscriber_id) AS n
+            FROM campaign_views cv
+            JOIN campaigns c ON c.id = cv.campaign_id
+            WHERE c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+            GROUP BY cv.campaign_id
+        ) x
+    ),
+    'clicks_90d', (
+        SELECT COALESCE(SUM(n), 0)::int FROM (
+            SELECT COUNT(DISTINCT lc.subscriber_id) AS n
+            FROM link_clicks lc
+            JOIN campaigns c ON c.id = lc.campaign_id
+            WHERE c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+            GROUP BY lc.campaign_id
+        ) x
+    ),
+    'bounces_90d', (
+        SELECT COUNT(*)::int FROM bounces b
+        JOIN campaigns c ON c.id = b.campaign_id
+        WHERE b.type <> 'complaint'
+          AND c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+    ),
+    'complaints_90d', (
+        SELECT COUNT(*)::int FROM bounces b
+        JOIN campaigns c ON c.id = b.campaign_id
+        WHERE b.type = 'complaint'
+          AND c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+    )
+);
+
+
+-- name: get-analytics-domains
+-- Engagement and bounces per mailbox provider.
+--
+-- This is the table that finds a deliverability problem before the overall rate
+-- moves. If Gmail opens at 30% and Yahoo at 4%, the campaign is not the
+-- problem: Yahoo is filtering it to spam, and only a per-provider split shows
+-- that. Neither EmailOctopus nor stock listmonk reports it.
+--
+-- EXISTS subqueries rather than joins across campaign_views, link_clicks and
+-- bounces: joining three one-to-many tables multiplies rows before the count.
+-- All three are indexed on subscriber_id.
+--
+-- $1: list ID, or 0 for every list.
+SELECT COALESCE(JSON_AGG(t ORDER BY t.subscribers DESC), '[]') FROM (
+    WITH members AS (
+        SELECT DISTINCT s.id, LOWER(SPLIT_PART(s.email, '@', 2)) AS domain
+        FROM subscribers s
+        JOIN subscriber_lists sl ON sl.subscriber_id = s.id
+        WHERE sl.status <> 'unsubscribed'
+          AND ($1 = 0 OR sl.list_id = $1)
+    )
+    SELECT
+        m.domain,
+        COUNT(*)::int AS subscribers,
+        COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM campaign_views cv WHERE cv.subscriber_id = m.id))::int AS openers,
+        COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM link_clicks lc WHERE lc.subscriber_id = m.id))::int    AS clickers,
+        COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM bounces b WHERE b.subscriber_id = m.id))::int          AS bounced
+    FROM members m
+    GROUP BY m.domain
+    ORDER BY 2 DESC
+    LIMIT 15
+) t;
+
+
+-- name: get-analytics-send-times
+-- Open rate by the weekday and hour a campaign was sent.
+--
+-- Timestamps are read in the database's timezone, not the recipient's. With one
+-- sender and a mostly US audience that is the useful reading anyway; treat it
+-- as "when we press send", not "when they read".
+--
+-- Thin data lies here. A slot holding one campaign shows that campaign's open
+-- rate, not a trend, so the campaign count is returned and the frontend hides
+-- slots below a threshold.
+SELECT COALESCE(JSON_AGG(t ORDER BY t.dow, t.hour), '[]') FROM (
+    SELECT
+        EXTRACT(DOW  FROM c.started_at)::int AS dow,
+        EXTRACT(HOUR FROM c.started_at)::int AS hour,
+        COUNT(*)::int                        AS campaigns,
+        COALESCE(SUM(c.sent), 0)::int        AS sent,
+        COALESCE(SUM((SELECT COUNT(DISTINCT cv.subscriber_id)
+                        FROM campaign_views cv
+                       WHERE cv.campaign_id = c.id)), 0)::int AS opens
+    FROM campaigns c
+    WHERE c.status = 'finished'
+      AND c.started_at IS NOT NULL
+    GROUP BY 1, 2
 ) t;

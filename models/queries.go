@@ -11,14 +11,17 @@ import (
 
 // Queries contains all prepared SQL queries.
 type Queries struct {
-	GetDashboardCharts *sqlx.Stmt `query:"get-dashboard-charts"`
-	GetAnalyticsGrowth    *sqlx.Stmt `query:"get-analytics-growth"`
-	GetAnalyticsCampaigns *sqlx.Stmt `query:"get-analytics-campaigns"`
-	GetAnalyticsCohorts   *sqlx.Stmt `query:"get-analytics-cohorts"`
+	GetDashboardCharts           *sqlx.Stmt `query:"get-dashboard-charts"`
+	GetAnalyticsGrowth           *sqlx.Stmt `query:"get-analytics-growth"`
+	GetAnalyticsCampaigns        *sqlx.Stmt `query:"get-analytics-campaigns"`
+	GetAnalyticsCohorts          *sqlx.Stmt `query:"get-analytics-cohorts"`
 	GetAnalyticsCampaignTimeline *sqlx.Stmt `query:"get-analytics-campaign-timeline"`
 	GetAnalyticsCampaignLinks    *sqlx.Stmt `query:"get-analytics-campaign-links"`
 	GetAnalyticsActivity         *sqlx.Stmt `query:"get-analytics-activity"`
-	GetDashboardCounts *sqlx.Stmt `query:"get-dashboard-counts"`
+	GetAnalyticsSummary          *sqlx.Stmt `query:"get-analytics-summary"`
+	GetAnalyticsDomains          *sqlx.Stmt `query:"get-analytics-domains"`
+	GetAnalyticsSendTimes        *sqlx.Stmt `query:"get-analytics-send-times"`
+	GetDashboardCounts           *sqlx.Stmt `query:"get-dashboard-counts"`
 
 	InsertSubscriber                *sqlx.Stmt `query:"insert-subscriber"`
 	UpsertSubscriber                *sqlx.Stmt `query:"upsert-subscriber"`

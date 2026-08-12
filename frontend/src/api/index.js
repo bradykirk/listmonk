@@ -120,6 +120,9 @@ export const getAnalyticsCohorts = (params) => http.get('/api/analytics/cohorts'
 export const getAnalyticsCampaignTimeline = (params) => http.get('/api/analytics/campaign-timeline', { params });
 export const getAnalyticsCampaignLinks = (params) => http.get('/api/analytics/campaign-links', { params });
 export const getAnalyticsActivity = (params) => http.get('/api/analytics/activity', { params });
+export const getAnalyticsSummary = (params) => http.get('/api/analytics/summary', { params });
+export const getAnalyticsDomains = (params) => http.get('/api/analytics/domains', { params });
+export const getAnalyticsSendTimes = () => http.get('/api/analytics/send-times');
 
 // Lists.
 export const getLists = (params) => http.get(

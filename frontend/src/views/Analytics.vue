@@ -20,6 +20,59 @@
     </header>
     <hr />
 
+    <!-- Headline numbers. Audience counts follow the list filter; campaign
+         rates cover the last 90 days across all lists, because a campaign is
+         sent to a set of lists and cannot be attributed to just one. -->
+    <div class="columns kpis">
+      <div class="column">
+        <div class="box kpi">
+          <p class="kpi-label">Subscribers</p>
+          <p class="kpi-value">{{ (summary.subscribers || 0).toLocaleString() }}</p>
+          <p class="kpi-sub">
+            <span class="has-text-success">+{{ summary.joined_30d || 0 }}</span>
+            /
+            <span class="has-text-grey">&minus;{{ summary.unsubscribed_30d || 0 }}</span>
+            in 30 days
+          </p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box kpi">
+          <p class="kpi-label">Emails sent</p>
+          <p class="kpi-value">{{ (summary.sent_90d || 0).toLocaleString() }}</p>
+          <p class="kpi-sub">{{ summary.campaigns_90d || 0 }} campaigns, 90 days</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box kpi">
+          <p class="kpi-label">Open rate</p>
+          <p class="kpi-value">{{ rate(summary.opens_90d, summary.sent_90d).toFixed(1) }}%</p>
+          <p class="kpi-sub">inflated by Apple Mail</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box kpi">
+          <p class="kpi-label">Click rate</p>
+          <p class="kpi-value">{{ rate(summary.clicks_90d, summary.sent_90d).toFixed(2) }}%</p>
+          <p class="kpi-sub">the reliable signal</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box kpi" :class="healthClass(bounceRate, 2, 5)">
+          <p class="kpi-label">Bounce rate</p>
+          <p class="kpi-value">{{ bounceRate.toFixed(2) }}%</p>
+          <p class="kpi-sub">SES suspends at 5%</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box kpi" :class="healthClass(complaintRate, 0.05, 0.1)">
+          <p class="kpi-label">Complaint rate</p>
+          <p class="kpi-value">{{ complaintRate.toFixed(3) }}%</p>
+          <p class="kpi-sub">SES suspends at 0.1%</p>
+        </div>
+      </div>
+    </div>
+
     <div class="columns">
       <div class="column is-8">
         <!-- Audience growth -->
@@ -107,11 +160,20 @@
         <b-table-column v-slot="props" label="Didn't click" numeric>
           <span class="has-text-grey">{{ notCount(props.row.sent, props.row.unique_clicks) }}</span>
         </b-table-column>
+        <b-table-column v-slot="props" field="unsubscribes" label="Unsub.*" numeric>
+          <span class="has-text-grey">
+            {{ props.row.unsubscribes }}
+            <span class="is-size-7">{{ pct(props.row.unsubscribes, props.row.sent) }}</span>
+          </span>
+        </b-table-column>
         <b-table-column v-slot="props" field="bounces" label="Bounced" numeric>
           <span :class="{ 'has-text-danger': rate(props.row.bounces, props.row.sent) > 5 }">
             {{ props.row.bounces }}
             <span class="is-size-7">{{ pct(props.row.bounces, props.row.sent) }}</span>
           </span>
+          <p v-if="props.row.bounces" class="has-text-grey is-size-7">
+            {{ props.row.hard_bounces }} hard / {{ props.row.soft_bounces }} soft
+          </p>
         </b-table-column>
         <b-table-column v-slot="props" field="complaints" label="Complained" numeric>
           <span :class="{ 'has-text-danger': rate(props.row.complaints, props.row.sent) > 0.1 }">
@@ -124,10 +186,93 @@
         </template>
       </b-table>
       <p class="has-text-grey is-size-7 mt-3">
-        Unsubscribes are not shown per campaign. listmonk records an unsubscribe on the
-        subscription, without a reference to the campaign that caused it, so the number
-        cannot be recovered.
+        * Unsubscribes are <strong>attributed, not exact</strong>. listmonk records an
+        unsubscribe on the subscription without a reference to the campaign that caused
+        it, so this counts unsubscribes from the campaign's own lists in the 72 hours
+        after it started. Two campaigns to the same list inside one window will both
+        claim the same unsubscribe.
       </p>
+    </div>
+
+    <!-- Deliverability trend -->
+    <div class="box">
+      <h4 class="title is-6">Deliverability trend</h4>
+      <p class="has-text-grey is-size-7">
+        The same campaigns over time. A bounce or complaint line that is climbing is
+        the earliest warning that a list needs cleaning &mdash; it shows up here well
+        before Amazon acts on it.
+      </p>
+      <div class="chart-wrap">
+        <canvas ref="trendCanvas" />
+      </div>
+    </div>
+
+    <div class="columns">
+      <!-- Mailbox providers -->
+      <div class="column is-7">
+        <div class="box">
+          <h4 class="title is-6">Mailbox providers</h4>
+          <p class="has-text-grey is-size-7">
+            Share of each provider's subscribers who have ever opened or clicked. One
+            provider engaging far below the rest usually means it is filtering to spam,
+            which an overall open rate hides.
+          </p>
+          <b-table :data="domains" narrowed>
+            <b-table-column v-slot="props" field="domain" label="Provider">
+              {{ props.row.domain }}
+              <b-tag v-if="isUnderperforming(props.row)" type="is-warning" class="ml-2">
+                low engagement
+              </b-tag>
+            </b-table-column>
+            <b-table-column v-slot="props" field="subscribers" label="Subscribers" numeric>
+              {{ props.row.subscribers.toLocaleString() }}
+            </b-table-column>
+            <b-table-column v-slot="props" field="openers" label="Ever opened" numeric>
+              {{ rate(props.row.openers, props.row.subscribers).toFixed(1) }}%
+            </b-table-column>
+            <b-table-column v-slot="props" field="clickers" label="Ever clicked" numeric>
+              {{ rate(props.row.clickers, props.row.subscribers).toFixed(1) }}%
+            </b-table-column>
+            <b-table-column v-slot="props" field="bounced" label="Bounced" numeric>
+              <span :class="{ 'has-text-danger': rate(props.row.bounced, props.row.subscribers) > 5 }">
+                {{ rate(props.row.bounced, props.row.subscribers).toFixed(1) }}%
+              </span>
+            </b-table-column>
+            <template #empty>
+              <p class="has-text-grey">No subscribers yet.</p>
+            </template>
+          </b-table>
+        </div>
+      </div>
+
+      <!-- Send times -->
+      <div class="column is-5">
+        <div class="box">
+          <h4 class="title is-6">Best send times</h4>
+          <p class="has-text-grey is-size-7">
+            Open rate by the weekday and hour a campaign went out, in the server's
+            timezone. Slots covering a single campaign are marked: they show that
+            campaign, not a pattern.
+          </p>
+          <b-table :data="sendTimes" narrowed>
+            <b-table-column v-slot="props" label="Slot">
+              {{ dayName(props.row.dow) }} {{ hourLabel(props.row.hour) }}
+              <b-tag v-if="props.row.campaigns < 3" type="is-light" class="ml-2">
+                {{ props.row.campaigns }} campaign{{ props.row.campaigns === 1 ? '' : 's' }}
+              </b-tag>
+            </b-table-column>
+            <b-table-column v-slot="props" field="sent" label="Sent" numeric>
+              {{ props.row.sent.toLocaleString() }}
+            </b-table-column>
+            <b-table-column v-slot="props" field="opens" label="Open rate" numeric>
+              {{ rate(props.row.opens, props.row.sent).toFixed(1) }}%
+            </b-table-column>
+            <template #empty>
+              <p class="has-text-grey">No finished campaigns yet.</p>
+            </template>
+          </b-table>
+        </div>
+      </div>
     </div>
 
     <!-- Selected campaign detail -->
@@ -188,14 +333,35 @@ export default {
       activity: [],
       links: [],
       timeline: [],
+      summary: {},
+      domains: [],
+      sendTimes: [],
       selectedCampaign: null,
-      charts: { growth: null, cohort: null, timeline: null },
+      charts: {
+        growth: null, cohort: null, timeline: null, trend: null,
+      },
     };
   },
 
   computed: {
     cohortTotal() {
       return this.cohorts.reduce((acc, c) => acc + c.subscribers, 0);
+    },
+
+    bounceRate() {
+      return this.rate(this.summary.bounces_90d, this.summary.sent_90d);
+    },
+
+    complaintRate() {
+      return this.rate(this.summary.complaints_90d, this.summary.sent_90d);
+    },
+
+    // The engagement rate across every provider, used as the baseline that an
+    // individual provider is judged against.
+    overallOpenRate() {
+      const subs = this.domains.reduce((acc, d) => acc + d.subscribers, 0);
+      const openers = this.domains.reduce((acc, d) => acc + d.openers, 0);
+      return this.rate(openers, subs);
     },
   },
 
@@ -218,6 +384,40 @@ export default {
       return dayjs(ts).fromNow();
     },
 
+    // Colours a KPI box against the thresholds that get a sender suspended.
+    healthClass(value, warnAt, dangerAt) {
+      if (value >= dangerAt) {
+        return 'kpi--danger';
+      }
+      if (value >= warnAt) {
+        return 'kpi--warn';
+      }
+      return '';
+    },
+
+    // A provider engaging at less than half the overall rate is worth looking at.
+    // Small providers are skipped: a 12-subscriber domain proves nothing.
+    isUnderperforming(row) {
+      if (row.subscribers < 25 || this.overallOpenRate === 0) {
+        return false;
+      }
+      return this.rate(row.openers, row.subscribers) < this.overallOpenRate / 2;
+    },
+
+    dayName(dow) {
+      return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dow] || '—';
+    },
+
+    hourLabel(h) {
+      if (h === 0) {
+        return '12am';
+      }
+      if (h === 12) {
+        return '12pm';
+      }
+      return h < 12 ? `${h}am` : `${h - 12}pm`;
+    },
+
     destroyChart(key) {
       if (this.charts[key]) {
         this.charts[key].destroy();
@@ -225,15 +425,19 @@ export default {
       }
     },
 
-    // List-scoped data: growth, cohorts and the global activity feed.
+    // List-scoped data: growth, cohorts, headline counts and provider split.
     async fetchList() {
       const params = { list_id: this.listID };
-      const [growth, cohorts] = await Promise.all([
+      const [growth, cohorts, summary, domains] = await Promise.all([
         api.getAnalyticsGrowth(params),
         api.getAnalyticsCohorts(params),
+        api.getAnalyticsSummary(params),
+        api.getAnalyticsDomains(params),
       ]);
       this.growth = growth || [];
       this.cohorts = cohorts || [];
+      this.summary = summary || {};
+      this.domains = domains || [];
 
       this.$nextTick(() => {
         this.renderGrowth();
@@ -366,20 +570,96 @@ export default {
         },
       });
     },
+
+    // Rates per campaign, oldest first. Bounce and complaint sit on their own
+    // axis: at healthy levels they are a fraction of a percent and would be a
+    // flat line against an open rate in the twenties.
+    renderTrend() {
+      this.destroyChart('trend');
+      if (!this.$refs.trendCanvas || this.campaigns.length === 0) {
+        return;
+      }
+
+      const rows = [...this.campaigns].reverse();
+      const series = (key) => rows.map((r) => this.rate(r[key], r.sent));
+
+      this.charts.trend = new Chart(this.$refs.trendCanvas, {
+        type: 'line',
+        data: {
+          labels: rows.map((r) => (r.started_at ? r.started_at.substring(0, 10) : r.name)),
+          datasets: [
+            {
+              label: 'Open %',
+              data: series('unique_opens'),
+              borderColor: '#0055d4',
+              backgroundColor: 'transparent',
+              tension: 0.3,
+            },
+            {
+              label: 'Click %',
+              data: series('unique_clicks'),
+              borderColor: '#4bb37b',
+              backgroundColor: 'transparent',
+              tension: 0.3,
+            },
+            {
+              label: 'Bounce %',
+              data: series('bounces'),
+              borderColor: '#f0a92e',
+              backgroundColor: 'transparent',
+              tension: 0.3,
+              yAxisID: 'y1',
+            },
+            {
+              label: 'Complaint %',
+              data: series('complaints'),
+              borderColor: '#d13b3b',
+              backgroundColor: 'transparent',
+              tension: 0.3,
+              yAxisID: 'y1',
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: { display: true, text: 'Open / click %' },
+            },
+            y1: {
+              beginAtZero: true,
+              position: 'right',
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: 'Bounce / complaint %' },
+            },
+          },
+        },
+      });
+    },
   },
 
   async mounted() {
     const lists = await api.getLists({ minimal: true, per_page: 'all' });
     this.lists = (lists && lists.results) || lists || [];
 
-    const [campaigns, activity] = await Promise.all([
+    const [campaigns, activity, sendTimes] = await Promise.all([
       api.getAnalyticsCampaigns(),
       api.getAnalyticsActivity({ campaign_id: 0 }),
+      api.getAnalyticsSendTimes(),
     ]);
     this.campaigns = campaigns || [];
     this.activity = activity || [];
 
+    // Best slot first. The table marks thin slots rather than hiding them.
+    this.sendTimes = (sendTimes || []).slice().sort(
+      (a, b) => this.rate(b.opens, b.sent) - this.rate(a.opens, a.sent),
+    );
+
     await this.fetchList();
+    this.$nextTick(() => this.renderTrend());
   },
 
   beforeDestroy() {
@@ -389,6 +669,42 @@ export default {
 </script>
 
 <style scoped>
+.kpis {
+  flex-wrap: wrap;
+}
+
+.kpi {
+  height: 100%;
+  padding: 0.9rem 1rem;
+  border-top: 3px solid transparent;
+}
+
+.kpi--warn {
+  border-top-color: #f0a92e;
+}
+
+.kpi--danger {
+  border-top-color: #d13b3b;
+}
+
+.kpi-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #7a7a7a;
+}
+
+.kpi-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.kpi-sub {
+  font-size: 0.72rem;
+  color: #9a9a9a;
+}
+
 .chart-wrap {
   position: relative;
   height: 320px;
