@@ -1,0 +1,113 @@
+# Builds listmonk from source (gunmade fork).
+#
+# The stock Dockerfile only copies a binary that was already built on the host
+# ("COPY listmonk ."), so it cannot build the project on its own. This one does
+# the whole build, which lets Coolify build straight from the Git repo: no
+# container registry, no access token, and the image is compiled for whatever
+# architecture the server runs.
+#
+# Build:  docker build -f Dockerfile.gunmade -t listmonk-gunmade .
+# Coolify: set the build pack to Dockerfile and the path to Dockerfile.gunmade.
+
+# ---- Stage 1: the admin frontend ----
+FROM node:24-alpine AS frontend
+
+# node-gyp needs a toolchain for any dependency that ships native code.
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /src
+
+# Dependencies first, so a source-only change does not reinstall them.
+COPY frontend/package.json frontend/yarn.lock ./frontend/
+COPY frontend/email-builder/package.json frontend/email-builder/yarn.lock ./frontend/email-builder/
+
+RUN cd frontend/email-builder && yarn install --frozen-lockfile
+
+# The admin's postinstall hook copies altcha's browser bundle to
+# static/public/static/altcha.umd.js. That path must exist first, and the file
+# it writes is gitignored — so a fresh clone never has it and it has to be
+# generated here, then carried into the next stage.
+RUN mkdir -p static/public/static
+RUN cd frontend && yarn install --frozen-lockfile
+
+COPY frontend ./frontend
+
+# The package's "prebuild" hook runs eslint with --ignore-path .gitignore, and
+# yarn runs it automatically before "build". The repository's .dockerignore
+# excludes **/.gitignore, so that file never reaches the build context and
+# eslint exits 2. An empty one satisfies it: the lint target is src/, which the
+# real file did not exclude anyway.
+RUN touch frontend/.gitignore
+
+# The email builder is built first and copied into the admin's public
+# directory, so that the admin's own build picks it up as a static asset.
+# This mirrors the FRONTEND_EMAIL_BUILDER_DIST_FINAL target in the Makefile.
+RUN cd frontend/email-builder && yarn build \
+    && mkdir -p /src/frontend/public/static/email-builder \
+    && cp -r dist/* /src/frontend/public/static/email-builder/
+
+ARG VERSION=v6.2.0-gunmade
+RUN cd frontend && VUE_APP_VERSION="${VERSION}" yarn build
+
+# ---- Stage 2: the Go binary, with every asset packed in ----
+FROM golang:1.26-alpine AS backend
+
+RUN apk add --no-cache git make
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+COPY --from=frontend /src/frontend/dist ./frontend/dist
+
+# Generated during the frontend install and gitignored, so it cannot be taken
+# from the build context. stuffbin packs static/public, and the login page
+# requests this file when CAPTCHA is enabled.
+COPY --from=frontend /src/static/public/static/altcha.umd.js ./static/public/static/altcha.umd.js
+
+ARG VERSION=v6.2.0-gunmade
+ARG BUILD=gunmade
+
+# CGO off: the result must run on a bare Alpine image with no libc to link to.
+RUN CGO_ENABLED=0 go build -a \
+    -ldflags="-s -w -X 'main.buildString=${BUILD}' -X 'main.versionString=${VERSION}'" \
+    -o listmonk ./cmd
+
+# stuffbin appends the static assets to the binary as a zip. The file list must
+# match STATIC in the Makefile; listmonk fails at runtime if an entry is absent.
+RUN go install github.com/knadh/stuffbin/...@latest \
+    && /go/bin/stuffbin -a stuff -in listmonk -out listmonk \
+        config.toml.sample \
+        schema.sql \
+        queries:/queries \
+        permissions.json \
+        static/public:/public \
+        static/email-templates \
+        frontend/dist:/admin \
+        i18n:/i18n
+
+# ---- Stage 3: runtime ----
+# Mirrors the stock Dockerfile so the container behaves identically.
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata shadow su-exec
+
+WORKDIR /listmonk
+
+COPY --from=backend /src/listmonk .
+COPY --from=backend /src/config.toml.sample config.toml
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# config.toml.sample binds to localhost:9000, which is unreachable from outside
+# the container — the process starts, the port is published, and every request
+# still fails. Containers need to listen on all interfaces. Override with
+# LISTMONK_app__address if a deployment needs something else.
+ENV LISTMONK_app__address=0.0.0.0:9000
+
+EXPOSE 9000
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["./listmonk"]
