@@ -27,8 +27,20 @@ cannot: it only copies a binary that was already built on the host
 the Git repo — no container registry, no access token, and the image is
 compiled for the server's own architecture.
 
-In Coolify: build pack **Dockerfile**, path **`Dockerfile.gunmade`**, repo
-`github.com/bradykirk/listmonk`, branch `gunmade`.
+In Coolify: build pack **Docker Compose**, compose location
+**`/docker-compose.gunmade.yml`**, repo `github.com/bradykirk/listmonk`, branch
+`gunmade`.
+
+`docker-compose.gunmade.yml` is a separate file from the upstream
+`docker-compose.yml`, which is left untouched so it never conflicts on rebase.
+It builds with `context: .`, so a push to this repo is all that is needed to
+ship a change — Coolify's Auto Deploy only watches the repo connected as its Git
+Source, so a fork referenced as a remote build context would never trigger one.
+
+**The volume keys `listmonk-data` and `listmonk-uploads` must not be renamed.**
+Coolify names the real volumes `<application-uuid>_<key>`, so they survive a
+change of repository, but not a change of key. Renaming either one brings
+listmonk up against an empty database.
 
 Three things this Dockerfile handles that are easy to miss, each found by
 building it rather than by reading:

@@ -1,0 +1,87 @@
+# Production stack for Coolify (gunmade fork).
+#
+# This is a separate file from the upstream docker-compose.yml, which stays
+# untouched so it never conflicts on rebase. Point Coolify's "Docker Compose
+# Location" at /docker-compose.gunmade.yml.
+#
+# Differences from upstream, each one load-bearing:
+#   - builds from source instead of pulling listmonk/listmonk (that image does
+#     not contain this fork)
+#   - no custom network — a second network makes Traefik route to an
+#     unreachable container IP and every request 504s after 30s
+#   - no published ports — Coolify's proxy reaches :9000 over the Docker network
+#   - named volumes, not relative bind mounts — a relative path resolves into
+#     Coolify's per-deployment artifacts directory, so uploaded media would be
+#     discarded on every redeploy, and those URLs are live in sent email
+
+services:
+  # listmonk app
+  app:
+    # Built from this repository. The stock Dockerfile only copies a binary that
+    # was already built on the host, so it cannot be used here; Dockerfile.gunmade
+    # runs the whole build.
+    #
+    # `context: .` means Coolify builds the checkout it already made, so a push
+    # to this repo is all that is needed to ship a change.
+    build:
+      context: .
+      dockerfile: Dockerfile.gunmade
+    image: listmonk-gunmade:v6.2.0
+    container_name: listmonk_app
+    restart: unless-stopped
+    hostname: ${LISTMONK_HOSTNAME:-lists.gunmade.com}
+    depends_on:
+      - db
+    command: [sh, -c, "./listmonk --install --idempotent --yes --config '' && ./listmonk --upgrade --yes --config '' && ./listmonk --config ''"]
+                                                              # --config (file) param is set to empty so that listmonk only uses the env vars (below) for config.
+                                                              # --install --idempotent ensures that DB installation happens only once on an empty DB, on the first ever start.
+                                                              # --upgrade automatically runs any DB migrations when a new image is pulled.
+                                                              # This fork changes no schema, so --upgrade is a no-op for it.
+
+    environment:                                              # The same params as in config.toml are passed as env vars here.
+      LISTMONK_app__address: 0.0.0.0:9000
+      LISTMONK_db__user: ${DB_USER:-listmonk}
+      LISTMONK_db__password: ${DB_PASSWORD:-listmonk}
+      LISTMONK_db__database: ${DB_NAME:-listmonk}
+      LISTMONK_db__host: db
+      LISTMONK_db__port: 5432
+      LISTMONK_db__ssl_mode: disable
+      LISTMONK_db__max_open: 25
+      LISTMONK_db__max_idle: 25
+      LISTMONK_db__max_lifetime: 300s
+      TZ: Etc/UTC
+      LISTMONK_ADMIN_USER: ${LISTMONK_ADMIN_USER:-}           # If these (optional) are set during the first `docker compose up`, then the Super Admin user is automatically created.
+      LISTMONK_ADMIN_PASSWORD: ${LISTMONK_ADMIN_PASSWORD:-}   # Otherwise, the user can be setup on the web app after the first visit to http://localhost:9000
+    volumes:
+      # Named volume, not `./uploads`. See the header note: a relative bind
+      # mount is ephemeral under Coolify and the media URLs are already live in
+      # email that has been sent.
+      - type: volume
+        source: listmonk-uploads
+        target: /listmonk/uploads
+
+  # Postgres database
+  db:
+    image: postgres:17-alpine
+    container_name: listmonk_db
+    restart: unless-stopped
+    # No published ports — nothing outside the Docker network needs Postgres.
+    environment:
+      POSTGRES_USER: ${DB_USER:-listmonk}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-listmonk}
+      POSTGRES_DB: ${DB_NAME:-listmonk}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-listmonk}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    volumes:
+      - type: volume
+        source: listmonk-data
+        target: /var/lib/postgresql/data
+
+# These volume names must not change. They hold the subscriber database and the
+# uploaded media; renaming either one silently starts from empty.
+volumes:
+  listmonk-data:
+  listmonk-uploads:
