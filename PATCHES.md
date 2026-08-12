@@ -263,3 +263,24 @@ spam before the overall rate moves.
 listmonk is **AGPLv3**. This fork is published on GitHub, which satisfies the
 source-availability obligation that applies when a modified version is served
 to users over a network. Keep the fork public.
+
+## The frontend camelCases every API key
+
+`frontend/src/api/index.js` runs `utils.camelKeys` on every response body by
+default. A column returned by SQL as `unique_opens` reaches the Vue component as
+`uniqueOpens`. Reading `props.row.unique_opens` gives `undefined`, and because
+the page divides by it, the cell renders `NaN%` rather than failing loudly.
+
+This is easy to miss because single-word keys — `sent`, `bounces`, `complaints`,
+`unsubscribes` — pass through untouched. Only multi-word keys break, so a table
+looks half-right: real numbers in some columns, `NaN%` in others.
+
+Name columns in camelCase in the templates, matching the rest of listmonk
+(`props.row.createdAt` in `Campaigns.vue`, `Bounces.vue`, `Lists.vue`). Per
+request, `{ camelCase: false }` in the axios config disables the transform, but
+using it here would make this one page behave unlike every other.
+
+**Verifying an API change is not enough.** This shipped because the endpoints
+were tested with curl, where the JSON is correct, and the page itself was never
+loaded. Either open the page, or check the field names against `camelKeys` — the
+transform sits between the two and the curl output does not show it.

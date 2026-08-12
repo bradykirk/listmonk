@@ -29,9 +29,9 @@
           <p class="kpi-label">Subscribers</p>
           <p class="kpi-value">{{ (summary.subscribers || 0).toLocaleString() }}</p>
           <p class="kpi-sub">
-            <span class="has-text-success">+{{ summary.joined_30d || 0 }}</span>
+            <span class="has-text-success">+{{ summary.joined30d || 0 }}</span>
             /
-            <span class="has-text-grey">&minus;{{ summary.unsubscribed_30d || 0 }}</span>
+            <span class="has-text-grey">&minus;{{ summary.unsubscribed30d || 0 }}</span>
             in 30 days
           </p>
         </div>
@@ -39,21 +39,21 @@
       <div class="column">
         <div class="box kpi">
           <p class="kpi-label">Emails sent</p>
-          <p class="kpi-value">{{ (summary.sent_90d || 0).toLocaleString() }}</p>
-          <p class="kpi-sub">{{ summary.campaigns_90d || 0 }} campaigns, 90 days</p>
+          <p class="kpi-value">{{ (summary.sent90d || 0).toLocaleString() }}</p>
+          <p class="kpi-sub">{{ summary.campaigns90d || 0 }} campaigns, 90 days</p>
         </div>
       </div>
       <div class="column">
         <div class="box kpi">
           <p class="kpi-label">Open rate</p>
-          <p class="kpi-value">{{ rate(summary.opens_90d, summary.sent_90d).toFixed(1) }}%</p>
+          <p class="kpi-value">{{ rate(summary.opens90d, summary.sent90d).toFixed(1) }}%</p>
           <p class="kpi-sub">inflated by Apple Mail</p>
         </div>
       </div>
       <div class="column">
         <div class="box kpi">
           <p class="kpi-label">Click rate</p>
-          <p class="kpi-value">{{ rate(summary.clicks_90d, summary.sent_90d).toFixed(2) }}%</p>
+          <p class="kpi-value">{{ rate(summary.clicks90d, summary.sent90d).toFixed(2) }}%</p>
           <p class="kpi-sub">the reliable signal</p>
         </div>
       </div>
@@ -114,13 +114,13 @@
           </p>
           <ul class="activity-list">
             <li v-for="(a, i) in activity" :key="i">
-              <router-link :to="{ name: 'subscribers', query: { id: a.subscriber_id } }">
+              <router-link :to="{ name: 'subscribers', query: { id: a.subscriberId } }">
                 {{ a.email }}
               </router-link>
               <span :class="a.action === 'clicked' ? 'has-text-link' : 'has-text-grey'">
                 {{ a.action }}
               </span>
-              <span class="has-text-grey-light is-size-7">{{ ago(a.created_at) }}</span>
+              <span class="has-text-grey-light is-size-7">{{ ago(a.createdAt) }}</span>
             </li>
           </ul>
         </div>
@@ -140,25 +140,25 @@
           {{ props.row.name }}
           <p class="has-text-grey is-size-7">{{ props.row.subject }}</p>
         </b-table-column>
-        <b-table-column v-slot="props" field="started_at" label="Sent">
-          {{ props.row.started_at ? props.row.started_at.substring(0, 10) : '—' }}
+        <b-table-column v-slot="props" field="startedAt" label="Sent">
+          {{ props.row.startedAt ? props.row.startedAt.substring(0, 10) : '—' }}
         </b-table-column>
         <b-table-column v-slot="props" field="sent" label="Sent to" numeric>
           {{ props.row.sent }}
         </b-table-column>
-        <b-table-column v-slot="props" field="unique_opens" label="Opened" numeric>
-          {{ props.row.unique_opens }}
-          <span class="has-text-grey is-size-7">{{ pct(props.row.unique_opens, props.row.sent) }}</span>
+        <b-table-column v-slot="props" field="uniqueOpens" label="Opened" numeric>
+          {{ props.row.uniqueOpens }}
+          <span class="has-text-grey is-size-7">{{ pct(props.row.uniqueOpens, props.row.sent) }}</span>
         </b-table-column>
         <b-table-column v-slot="props" label="Didn't open" numeric>
-          <span class="has-text-grey">{{ notCount(props.row.sent, props.row.unique_opens) }}</span>
+          <span class="has-text-grey">{{ notCount(props.row.sent, props.row.uniqueOpens) }}</span>
         </b-table-column>
-        <b-table-column v-slot="props" field="unique_clicks" label="Clicked" numeric>
-          {{ props.row.unique_clicks }}
-          <span class="has-text-grey is-size-7">{{ pct(props.row.unique_clicks, props.row.sent) }}</span>
+        <b-table-column v-slot="props" field="uniqueClicks" label="Clicked" numeric>
+          {{ props.row.uniqueClicks }}
+          <span class="has-text-grey is-size-7">{{ pct(props.row.uniqueClicks, props.row.sent) }}</span>
         </b-table-column>
         <b-table-column v-slot="props" label="Didn't click" numeric>
-          <span class="has-text-grey">{{ notCount(props.row.sent, props.row.unique_clicks) }}</span>
+          <span class="has-text-grey">{{ notCount(props.row.sent, props.row.uniqueClicks) }}</span>
         </b-table-column>
         <b-table-column v-slot="props" field="unsubscribes" label="Unsub.*" numeric>
           <span class="has-text-grey">
@@ -172,7 +172,7 @@
             <span class="is-size-7">{{ pct(props.row.bounces, props.row.sent) }}</span>
           </span>
           <p v-if="props.row.bounces" class="has-text-grey is-size-7">
-            {{ props.row.hard_bounces }} hard / {{ props.row.soft_bounces }} soft
+            {{ props.row.hardBounces }} hard / {{ props.row.softBounces }} soft
           </p>
         </b-table-column>
         <b-table-column v-slot="props" field="complaints" label="Complained" numeric>
@@ -290,8 +290,8 @@
         <b-table-column v-slot="props" field="clicks" label="Clicks" numeric>
           {{ props.row.clicks }}
         </b-table-column>
-        <b-table-column v-slot="props" field="unique_clickers" label="Unique" numeric>
-          {{ props.row.unique_clickers }}
+        <b-table-column v-slot="props" field="uniqueClickers" label="Unique" numeric>
+          {{ props.row.uniqueClickers }}
         </b-table-column>
         <template #empty>
           <p class="has-text-grey">No clicks recorded for this campaign.</p>
@@ -349,11 +349,11 @@ export default {
     },
 
     bounceRate() {
-      return this.rate(this.summary.bounces_90d, this.summary.sent_90d);
+      return this.rate(this.summary.bounces90d, this.summary.sent90d);
     },
 
     complaintRate() {
-      return this.rate(this.summary.complaints_90d, this.summary.sent_90d);
+      return this.rate(this.summary.complaints90d, this.summary.sent90d);
     },
 
     // The engagement rate across every provider, used as the baseline that an
@@ -586,18 +586,18 @@ export default {
       this.charts.trend = new Chart(this.$refs.trendCanvas, {
         type: 'line',
         data: {
-          labels: rows.map((r) => (r.started_at ? r.started_at.substring(0, 10) : r.name)),
+          labels: rows.map((r) => (r.startedAt ? r.startedAt.substring(0, 10) : r.name)),
           datasets: [
             {
               label: 'Open %',
-              data: series('unique_opens'),
+              data: series('uniqueOpens'),
               borderColor: '#0055d4',
               backgroundColor: 'transparent',
               tension: 0.3,
             },
             {
               label: 'Click %',
-              data: series('unique_clicks'),
+              data: series('uniqueClicks'),
               borderColor: '#4bb37b',
               backgroundColor: 'transparent',
               tension: 0.3,
