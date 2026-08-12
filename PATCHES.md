@@ -38,6 +38,8 @@ Then rebuild and push the image, and update the tag in Coolify.
 | `internal/core/analytics.go` | Core methods that run those queries. |
 | `models/autotrack.go` | Adds the open pixel and click tracking to every campaign by default. See below. |
 | `models/autotrack_test.go` | Table tests for both, plus two end-to-end tests through `CompileTemplate`. |
+| `models/autounsubscribe.go` | Guarantees an unsubscribe link in every campaign. See below. |
+| `models/autounsubscribe_test.go` | Tests for placement, no duplication, plain text and the alt body. |
 | `cmd/analytics.go` | HTTP handlers. Note: this directory is `package main`, not `package cmd`. |
 | `frontend/src/views/Analytics.vue` | The page. Uses `chart.js`, which listmonk already bundles — no new dependency. |
 
@@ -91,6 +93,36 @@ campaigns through the same `CompileTemplate`, so a campaign published to the
 public archive now carries the pixel. Visitors to that page will register as
 opens. Campaigns are not archived by default; if you start using the archive,
 expect open counts to include web traffic.
+
+## Guaranteed unsubscribe link
+
+The same silent-omission problem, with worse consequences. listmonk validates
+exactly one thing about a campaign template — that it contains
+`{{ template "content" . }}` (`cmd/templates.go`, `regexpTplTag`). It never
+checks for an unsubscribe link. The stock templates carry one, so the gap only
+appears in a hand-written template, and then the campaign goes to the entire
+list with no way out in the body.
+
+`models/autounsubscribe.go` appends a footer when neither the template nor the
+campaign body offers one. `ManageURL` satisfies the check as well as
+`UnsubscribeURL`, because listmonk's preferences page carries an unsubscribe
+control.
+
+- HTML campaigns get a styled footer before `</body>`. Styles are inline; email
+  clients discard `<style>` blocks.
+- Plain text campaigns get a text footer, never HTML.
+- The **alt body** gets the text footer too. A reader on a text-only client sees
+  that part and nothing else. This runs *before* the `hasTplExpr` check in
+  `CompileTemplate`, so an alt body that was previously static still compiles
+  once the footer introduces a template expression.
+- Repeat compiles are safe. `hasUnsubscribe` is true after the first pass.
+
+**This is not the same as the `List-Unsubscribe` header.** That header is
+controlled by `privacy.unsubscribe_header`, which `schema.sql` defaults to
+`true`, and it renders as a button supplied by the mail client. Gmail and Yahoo
+require it from senders above 5,000 messages a day. CAN-SPAM separately requires
+a visible notice *inside* the message. Both are needed; this patch covers the
+second.
 
 ## What the page shows
 

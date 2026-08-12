@@ -168,6 +168,17 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 		body = autoTrackLinks(body)
 	}
 
+	// gunmade fork: guarantee a way out. Both the template and the campaign's
+	// own content count, because either may carry the link. See
+	// models/autounsubscribe.go.
+	if !hasUnsubscribe(c.TemplateBody, c.Body) {
+		if tracksAsHTML(c.ContentType) {
+			body = autoUnsubscribeHTML(body)
+		} else {
+			body += unsubFooterText
+		}
+	}
+
 	for _, r := range regTplFuncs {
 		body = r.regExp.ReplaceAllString(body, r.replace)
 	}
@@ -209,6 +220,15 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 		return fmt.Errorf("error inserting child template: %v", err)
 	}
 	c.Tpl = out
+
+	// gunmade fork: the plain text alternative needs the same way out. A reader
+	// on a text-only client sees this part and nothing else. Appending the
+	// footer also introduces a template expression, so an alt body that was
+	// previously static now compiles — which is why this runs before the check
+	// below. Repeating the call is safe: hasUnsubscribe is true afterwards.
+	if c.AltBody.Valid && c.AltBody.String != "" && !hasUnsubscribe(c.AltBody.String) {
+		c.AltBody.String += unsubFooterText
+	}
 
 	if hasTplExpr(c.AltBody.String) {
 		b := c.AltBody.String
