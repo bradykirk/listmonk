@@ -36,6 +36,8 @@ Then rebuild and push the image, and update the tag in Coolify.
 | --- | --- |
 | `queries/analytics.sql` | Nine named queries. Each returns one JSON column, matching the existing `get-dashboard-charts` pattern, so the Go layer needs no result structs. |
 | `internal/core/analytics.go` | Core methods that run those queries. |
+| `models/autotrack.go` | Adds the open pixel and click tracking to every campaign by default. See below. |
+| `models/autotrack_test.go` | Table tests for both, plus two end-to-end tests through `CompileTemplate`. |
 | `cmd/analytics.go` | HTTP handlers. Note: this directory is `package main`, not `package cmd`. |
 | `frontend/src/views/Analytics.vue` | The page. Uses `chart.js`, which listmonk already bundles — no new dependency. |
 
@@ -48,6 +50,47 @@ Then rebuild and push the image, and update the tag in Coolify.
 | `frontend/src/api/index.js` | Nine client functions. | Re-add below `getDashboardCharts`. |
 | `frontend/src/router/index.js` | Route `listAnalytics` at `/analytics`. | Re-add near `campaignAnalytics`. |
 | `frontend/src/components/Navigation.vue` | Sidebar item in the campaigns group. | Re-add inside the campaigns `b-menu-item`. |
+| `models/campaigns.go` | Two calls in `CompileTemplate`, 9 lines. | Re-add both. One adds the pixel and tracks the base template's links; the second tracks the campaign body's links. Both must run **before** the `regTplFuncs` loop, because they emit the `@TrackLink` shorthand that loop rewrites. |
+
+## Automatic open and click tracking
+
+Stock listmonk tracks a campaign only where the author asked for it. The open
+pixel needs `{{ TrackView }}` somewhere in the template, and each link must be
+written as `https://example.com@TrackLink` to be counted. A template pasted in
+as hand-written HTML has neither. The campaign then sends perfectly and reports
+**zero opens and zero clicks**, and nothing warns you until after the send, when
+the data is already unrecoverable.
+
+`models/autotrack.go` injects both during `CompileTemplate`:
+
+- The pixel goes immediately before `</body>`, or is appended if the template
+  has no `</body>`. A template that already mentions `TrackView` is left alone,
+  so hand-placed pixels keep their position.
+- Every `<a href="http…">` gets `@TrackLink` appended, which the existing
+  `regTplFuncs` substitution turns into a real `{{ TrackLink }}` call.
+
+What it deliberately does not touch:
+
+- **Plain text campaigns.** An `<img>` tag or a redirect URL would reach the
+  reader as visible text.
+- **The unsubscribe link,** and any other `href` holding a template expression.
+  These do not begin with a URL scheme, so the regex never matches them. An
+  unsubscribe routed through the click tracker would log a click for someone
+  leaving.
+- **`mailto:` and `tel:` links,** and `<img src>`, for the same reason.
+- **Links already carrying `@TrackLink`.** No double-wrapping.
+- **Transactional email.** Those render through `Template.Compile`, a different
+  method. Welcome emails sent via `/api/tx` are unaffected, and could not record
+  an open anyway — `campaign_views.campaign_id` is `NOT NULL`.
+
+**Opt out of a single link** with `data-no-track` on the anchor:
+`<a data-no-track href="https://example.com">`.
+
+**One side effect to know about.** `cmd/archive.go` and `cmd/public.go` render
+campaigns through the same `CompileTemplate`, so a campaign published to the
+public archive now carries the pixel. Visitors to that page will register as
+opens. Campaigns are not archived by default; if you start using the archive,
+expect open counts to include web traffic.
 
 ## What the page shows
 

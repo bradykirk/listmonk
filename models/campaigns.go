@@ -161,6 +161,13 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 		body = `{{ template "content" . }}`
 	}
 
+	// gunmade fork: add the open pixel and track the template's own links unless
+	// the author already did. See models/autotrack.go.
+	if tracksAsHTML(c.ContentType) {
+		body = autoTrackView(body)
+		body = autoTrackLinks(body)
+	}
+
 	for _, r := range regTplFuncs {
 		body = r.regExp.ReplaceAllString(body, r.replace)
 	}
@@ -179,6 +186,12 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 		body = b.String()
 	} else {
 		body = c.Body
+	}
+
+	// gunmade fork: track the links in the campaign's own content. The pixel is
+	// not added here — it belongs once, in the base template above.
+	if tracksAsHTML(c.ContentType) {
+		body = autoTrackLinks(body)
 	}
 
 	// Compile the campaign message.
