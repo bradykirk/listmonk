@@ -40,6 +40,9 @@
       <b-menu-item v-if="$can('campaigns:get_analytics')" :to="{ name: 'campaignAnalytics' }" tag="router-link"
         :active="activeItem.campaignAnalytics" data-cy="analytics" icon="chart-bar"
         :label="$t('globals.terms.analytics')" />
+      <b-menu-item v-if="$can('campaigns:get_analytics')" :to="{ name: 'listAnalytics' }" tag="router-link"
+        :active="activeItem.listAnalytics" data-cy="list-analytics" icon="chart-line"
+        label="List analytics" />
     </b-menu-item><!-- campaigns -->
 
     <b-menu-item v-if="$can('users:*', 'roles:*')" :expanded="activeGroup.users" :active="activeGroup.users"

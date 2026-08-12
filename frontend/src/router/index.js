@@ -84,6 +84,12 @@ const routes = [
     component: () => import('../views/Templates.vue'),
   },
   {
+    path: '/analytics',
+    name: 'listAnalytics',
+    meta: { title: 'List analytics', group: 'campaigns' },
+    component: () => import('../views/Analytics.vue'),
+  },
+  {
     path: '/campaigns/analytics',
     name: 'campaignAnalytics',
     meta: { title: 'analytics.title', group: 'campaigns' },

@@ -113,6 +113,11 @@ export const getDashboardCharts = () => http.get(
   { loading: models.dashboard },
 );
 
+// List analytics (gunmade fork).
+export const getAnalyticsGrowth = (params) => http.get('/api/analytics/growth', { params });
+export const getAnalyticsCampaigns = () => http.get('/api/analytics/campaigns');
+export const getAnalyticsCohorts = (params) => http.get('/api/analytics/cohorts', { params });
+
 // Lists.
 export const getLists = (params) => http.get(
   '/api/lists',
