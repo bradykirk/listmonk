@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -648,6 +649,121 @@ func (a *App) GetCampaignViewAnalytics(c echo.Context) error {
 	out, err := a.core.GetCampaignAnalyticsCounts(ids, typ, from, to)
 	if err != nil {
 		return err
+	}
+
+	return c.JSON(http.StatusOK, okResp{out})
+}
+
+// GetCampaignAnalyticsSummary returns lifetime engagement counts and computed
+// rates for a single campaign.
+func (a *App) GetCampaignAnalyticsSummary(c echo.Context) error {
+	id := getID(c)
+
+	// Ensure the user has access to the campaign via lists.
+	if err := a.checkCampaignPerm(auth.PermTypeGet, id, c); err != nil {
+		return err
+	}
+
+	camp, err := a.core.GetCampaign(id, "", "")
+	if err != nil {
+		return err
+	}
+
+	out, err := a.core.GetCampaignAnalyticsSummary(id)
+	if err != nil {
+		return err
+	}
+	out.CampaignID = id
+	out.Sent = camp.Sent
+	out.ToSend = camp.ToSend
+	out.IndividualTracking = a.cfg.Privacy.IndividualTracking
+
+	// Delivered = sent - bounced subscribers, floored at 0 as bounce webhooks
+	// can arrive for sends outside the recorded window.
+	out.Delivered = out.Sent - out.Bounced
+	if out.Delivered < 0 {
+		out.Delivered = 0
+	}
+
+	round1 := func(v float64) float64 { return math.Round(v*10) / 10 }
+	pct := func(n, d int) *float64 {
+		if d <= 0 {
+			return nil
+		}
+		v := round1(float64(n) / float64(d) * 100)
+		return &v
+	}
+
+	if out.Sent > 0 {
+		out.BounceRate = round1(float64(out.Bounced) / float64(out.Sent) * 100)
+	}
+	if out.Delivered > 0 {
+		out.UnsubRate = round1(float64(out.Unsubs) / float64(out.Delivered) * 100)
+	}
+
+	// Open/click rates need unique counts, which only exist with individual
+	// tracking on. A campaign that has recorded events but zero attributed
+	// (per-subscriber) events was sent before individual tracking was enabled;
+	// its rates would read 0% and mislead, so they are suppressed too.
+	attributed := out.ViewsUnique > 0 || out.ClicksUnique > 0 ||
+		(out.ViewsTotal == 0 && out.ClicksTotal == 0)
+	if out.IndividualTracking && attributed {
+		out.OpenRate = pct(out.ViewsUnique, out.Delivered)
+		out.ClickRate = pct(out.ClicksUnique, out.Delivered)
+		out.ClickToOpen = pct(out.ClicksUnique, out.ViewsUnique)
+	}
+
+	return c.JSON(http.StatusOK, okResp{out})
+}
+
+// GetCampaignLinkStats returns per-URL total and unique click counts for a
+// single campaign.
+func (a *App) GetCampaignLinkStats(c echo.Context) error {
+	id := getID(c)
+
+	if err := a.checkCampaignPerm(auth.PermTypeGet, id, c); err != nil {
+		return err
+	}
+
+	out, err := a.core.GetCampaignLinkStats(id)
+	if err != nil {
+		return err
+	}
+
+	return c.JSON(http.StatusOK, okResp{out})
+}
+
+// GetCampaignSubscriberActivity returns paginated subscriber drill-down lists
+// for a campaign: ?type=viewed|clicked|not_viewed|unsubscribed.
+func (a *App) GetCampaignSubscriberActivity(c echo.Context) error {
+	id := getID(c)
+
+	if err := a.checkCampaignPerm(auth.PermTypeGet, id, c); err != nil {
+		return err
+	}
+
+	// The drill-down lists expose subscriber e-mails, so unlike the aggregate
+	// analytics endpoints, also require a subscriber read permission.
+	if user := auth.GetUser(c); !user.HasPerm(auth.PermSubscribersGetAll) && !user.HasPerm(auth.PermSubscribersGet) {
+		return echo.NewHTTPError(http.StatusForbidden,
+			a.i18n.Ts("globals.messages.permissionDenied", "name", auth.PermSubscribersGet))
+	}
+
+	var (
+		typ = c.QueryParam("type")
+		pg  = a.pg.NewFromURL(c.Request().URL.Query())
+	)
+
+	res, total, err := a.core.GetCampaignSubscriberActivity(id, typ, pg.Offset, pg.Limit)
+	if err != nil {
+		return err
+	}
+
+	out := models.PageResults{
+		Results: res,
+		Total:   total,
+		Page:    pg.Page,
+		PerPage: pg.PerPage,
 	}
 
 	return c.JSON(http.StatusOK, okResp{out})

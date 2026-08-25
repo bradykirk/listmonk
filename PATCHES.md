@@ -14,6 +14,13 @@ as the campaigns themselves, instead of a second tool.
    upstream migration into a merge problem. This is the rule that keeps the
    fork cheap. If a feature needs a schema change, contribute it upstream
    instead.
+   **Recorded exception (Aug 2026):** the campaign report feature adds one
+   additive table, `campaign_unsubs`, via fork migration `v6.2.1`
+   (`internal/migrations/v6.2.1.go` + a two-line `cmd/upgrade.go` entry).
+   Unsubscribe-to-campaign attribution is impossible without it. The migration
+   is `CREATE TABLE IF NOT EXISTS` only and touches no upstream table. Rebase
+   risk: if upstream ever ships its own `v6.2.1`, rename ours and fix up the
+   recorded version in the `settings` table.
 3. **Put new code in new files.** New files never conflict during a rebase.
    Only five existing files are touched, by 20 lines in total.
 4. **Keep this file current.** When a hunk conflicts during a rebase, the entry
@@ -296,3 +303,43 @@ using it here would make this one page behave unlike every other.
 were tested with curl, where the JSON is correct, and the page itself was never
 loaded. Either open the page, or check the field names against `camelKeys` — the
 transform sits between the two and the curl output does not show it.
+
+## Per-campaign report and rates (Aug 2026)
+
+EmailOctopus-style reporting. A report page per campaign at
+`/campaigns/:id/report`: Sent / Opened % / Clicked % / Bounced % /
+Unsubscribed % tiles, a first-24-hours opens+clicks chart, a per-link table
+with unique and total clicks, and subscriber drill-downs (opened / clicked /
+didn't open / unsubscribed). The campaigns list shows "Opened X% · Clicked Y%"
+in place of raw counts.
+
+Definitions, matching Mailchimp/Campaign Monitor: delivered = sent − distinct
+hard/soft-bounced subscribers; open rate = unique opens / delivered; click
+rate = unique clickers / delivered; click-to-open = unique clickers / unique
+opens; bounce rate is over sent. Unique counts only cover events recorded with
+`privacy.individual_tracking` on; a campaign with only anonymous events shows
+totals plus a notice instead of misleading 0% rates.
+
+New files: `internal/migrations/v6.2.1.go` (the `campaign_unsubs` table — see
+the rule-2 exception above), `frontend/src/views/CampaignReport.vue`,
+`models/campaigns_test.go` was NOT carried over (it tested a send-blocking
+gate that this fork's automatic footer injection makes dead — the injector in
+`models/autounsubscribe.go` guarantees the link, so blocking is never needed).
+
+Modified files beyond the watch list above: `queries/campaigns.sql`
+(`get-campaign-stats` gains unique counts; new summary/link/drill-down
+queries — the new CTEs must stay defined before the `bounces` CTE, which
+shadows the `bounces` table), `queries/subscribers.sql`
+(`unsubscribe-by-campaign` records into `campaign_unsubs` on actual flips or
+blocklists, deduped by unique index), `internal/core/campaigns.go`,
+`cmd/campaigns.go` (three handlers), `cmd/handlers.go` (three
+`GET /api/campaigns/:id/analytics/*` routes; the subscriber drill-down also
+requires `subscribers:get` because it exposes e-mail addresses),
+`cmd/upgrade.go`, `models/campaigns.go` + `models/queries.go`, `schema.sql`,
+`i18n/en.json` (`analytics.*` keys), `frontend/src/views/Campaigns.vue`,
+`Campaign.vue`, `api/index.js`, `router/index.js`.
+
+Verified against a live Postgres 16: fresh install, the v6.2.0 → v6.2.1
+upgrade path, endpoint math by hand, unsubscribe attribution (dedup,
+blocklist, deleted-subscriber cases), and the rendered UI. A 23-agent
+adversarial review confirmed 17 findings; all fixed and re-verified.

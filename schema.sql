@@ -218,6 +218,19 @@ DROP INDEX IF EXISTS idx_clicks_link_id; CREATE INDEX idx_clicks_link_id ON link
 DROP INDEX IF EXISTS idx_clicks_sub_id; CREATE INDEX idx_clicks_sub_id ON link_clicks(subscriber_id);
 DROP INDEX IF EXISTS idx_clicks_date; CREATE INDEX idx_clicks_date ON link_clicks(created_at);
 
+-- campaign unsubscribes
+DROP TABLE IF EXISTS campaign_unsubs CASCADE;
+CREATE TABLE campaign_unsubs (
+    id               BIGSERIAL PRIMARY KEY,
+    campaign_id      INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE ON UPDATE CASCADE,
+
+    -- Subscribers may be deleted, but the unsubscribe counts should remain.
+    subscriber_id    INTEGER NULL REFERENCES subscribers(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+DROP INDEX IF EXISTS idx_camp_unsubs_camp_sub; CREATE UNIQUE INDEX idx_camp_unsubs_camp_sub ON campaign_unsubs(campaign_id, subscriber_id);
+DROP INDEX IF EXISTS idx_camp_unsubs_date; CREATE INDEX idx_camp_unsubs_date ON campaign_unsubs(created_at);
+
 -- settings
 DROP TABLE IF EXISTS settings CASCADE;
 CREATE TABLE settings (

@@ -26,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.gunmade
-    image: listmonk-gunmade:v6.2.0
+    image: listmonk-gunmade:v6.2.1
     container_name: listmonk_app
     restart: unless-stopped
     hostname: ${LISTMONK_HOSTNAME:-lists.gunmade.com}
@@ -36,7 +36,8 @@ services:
                                                               # --config (file) param is set to empty so that listmonk only uses the env vars (below) for config.
                                                               # --install --idempotent ensures that DB installation happens only once on an empty DB, on the first ever start.
                                                               # --upgrade automatically runs any DB migrations when a new image is pulled.
-                                                              # This fork changes no schema, so --upgrade is a no-op for it.
+                                                              # This fork ships migration v6.2.1 (adds the campaign_unsubs table),
+                                                              # so --upgrade DOES migrate the DB on the first deploy after pulling it.
 
     environment:                                              # The same params as in config.toml are passed as env vars here.
       LISTMONK_app__address: 0.0.0.0:9000
