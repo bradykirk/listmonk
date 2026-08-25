@@ -120,6 +120,29 @@ media AS (
     SELECT campaign_id, JSON_AGG(JSON_BUILD_OBJECT('id', media_id, 'filename', filename)) AS media FROM campaign_media
     WHERE campaign_id = ANY($1) GROUP BY campaign_id
 ),
+viewsUniq AS (
+    SELECT campaign_id, COUNT(DISTINCT subscriber_id) as num FROM campaign_views
+    WHERE campaign_id = ANY($1) AND subscriber_id IS NOT NULL
+    GROUP BY campaign_id
+),
+clicksUniq AS (
+    SELECT campaign_id, COUNT(DISTINCT subscriber_id) as num FROM link_clicks
+    WHERE campaign_id = ANY($1) AND subscriber_id IS NOT NULL
+    GROUP BY campaign_id
+),
+bouncesUniq AS (
+    -- Distinct subscribers whose delivery failed. Complaints are excluded as
+    -- they imply successful delivery. NOTE: this must be defined before the
+    -- `bounces` CTE below, which shadows the bounces table.
+    SELECT campaign_id, COUNT(DISTINCT subscriber_id) as num FROM bounces
+    WHERE campaign_id = ANY($1) AND type IN ('hard', 'soft')
+    GROUP BY campaign_id
+),
+unsubs AS (
+    SELECT campaign_id, COUNT(campaign_id) as num FROM campaign_unsubs
+    WHERE campaign_id = ANY($1)
+    GROUP BY campaign_id
+),
 views AS (
     SELECT campaign_id, COUNT(campaign_id) as num FROM campaign_views
     WHERE campaign_id = ANY($1)
@@ -139,6 +162,10 @@ SELECT id as campaign_id,
     COALESCE(v.num, 0) AS views,
     COALESCE(c.num, 0) AS clicks,
     COALESCE(b.num, 0) AS bounces,
+    COALESCE(vu.num, 0) AS views_unique,
+    COALESCE(cu.num, 0) AS clicks_unique,
+    COALESCE(bu.num, 0) AS bounces_unique,
+    COALESCE(u.num, 0) AS unsubs,
     COALESCE(l.lists, '[]') AS lists,
     COALESCE(m.media, '[]') AS media
 FROM (SELECT id FROM UNNEST($1) AS id) x
@@ -147,6 +174,10 @@ LEFT JOIN media AS m ON (m.campaign_id = id)
 LEFT JOIN views AS v ON (v.campaign_id = id)
 LEFT JOIN clicks AS c ON (c.campaign_id = id)
 LEFT JOIN bounces AS b ON (b.campaign_id = id)
+LEFT JOIN viewsUniq AS vu ON (vu.campaign_id = id)
+LEFT JOIN clicksUniq AS cu ON (cu.campaign_id = id)
+LEFT JOIN bouncesUniq AS bu ON (bu.campaign_id = id)
+LEFT JOIN unsubs AS u ON (u.campaign_id = id)
 ORDER BY ARRAY_POSITION($1, id);
 
 -- name: get-campaign-for-preview
@@ -274,6 +305,94 @@ SELECT COUNT(%s) AS "count", url
     LEFT JOIN links ON (link_clicks.link_id = links.id)
     WHERE campaign_id=ANY($1) AND link_clicks.created_at >= $2 AND link_clicks.created_at <= $3
     GROUP BY links.url ORDER BY "count" DESC LIMIT 50;
+
+-- name: get-campaign-analytics-summary
+-- Lifetime aggregate engagement counts for a single campaign. Unique counts
+-- only cover events recorded with a known subscriber (individual tracking on);
+-- anonymous rows are excluded from them but included in the totals.
+SELECT
+    (SELECT COUNT(*) FROM campaign_views WHERE campaign_id=$1) AS views_total,
+    (SELECT COUNT(DISTINCT subscriber_id) FROM campaign_views WHERE campaign_id=$1 AND subscriber_id IS NOT NULL) AS views_unique,
+    (SELECT COUNT(*) FROM link_clicks WHERE campaign_id=$1) AS clicks_total,
+    (SELECT COUNT(DISTINCT subscriber_id) FROM link_clicks WHERE campaign_id=$1 AND subscriber_id IS NOT NULL) AS clicks_unique,
+    (SELECT COUNT(DISTINCT subscriber_id) FROM bounces WHERE campaign_id=$1 AND type IN ('hard', 'soft')) AS bounced,
+    (SELECT COUNT(DISTINCT subscriber_id) FROM bounces WHERE campaign_id=$1 AND type='hard') AS bounced_hard,
+    (SELECT COUNT(DISTINCT subscriber_id) FROM bounces WHERE campaign_id=$1 AND type='soft'
+        AND subscriber_id NOT IN (SELECT subscriber_id FROM bounces WHERE campaign_id=$1 AND type='hard')) AS bounced_soft,
+    (SELECT COUNT(DISTINCT subscriber_id) FROM bounces WHERE campaign_id=$1 AND type='complaint') AS complaints,
+    (SELECT COUNT(*) FROM campaign_unsubs WHERE campaign_id=$1) AS unsubs;
+
+-- name: get-campaign-link-stats
+-- Per-URL click stats for a single campaign: total clicks and unique clicking
+-- subscribers (0 when individual tracking is off).
+SELECT links.url,
+    COUNT(*) AS total,
+    COUNT(DISTINCT link_clicks.subscriber_id) FILTER (WHERE link_clicks.subscriber_id IS NOT NULL) AS unique_subs
+    FROM link_clicks
+    LEFT JOIN links ON (link_clicks.link_id = links.id)
+    WHERE campaign_id=$1
+    GROUP BY links.url ORDER BY total DESC LIMIT 100;
+
+-- name: get-campaign-viewers
+-- Subscribers with at least one recorded view of the campaign, newest first.
+-- Only covers events recorded with individual tracking on.
+SELECT COUNT(*) OVER () AS total,
+    subscribers.id, subscribers.uuid, subscribers.email, subscribers.name, subscribers.status,
+    v.first_at, v.num
+    FROM (
+        SELECT subscriber_id, MIN(created_at) AS first_at, COUNT(*) AS num
+        FROM campaign_views WHERE campaign_id=$1 AND subscriber_id IS NOT NULL GROUP BY subscriber_id
+    ) v
+    JOIN subscribers ON (subscribers.id = v.subscriber_id)
+    ORDER BY v.first_at DESC, subscribers.id DESC OFFSET $2 LIMIT (CASE WHEN $3 < 1 THEN NULL ELSE $3 END);
+
+-- name: get-campaign-clickers
+-- Subscribers with at least one recorded link click on the campaign, newest first.
+SELECT COUNT(*) OVER () AS total,
+    subscribers.id, subscribers.uuid, subscribers.email, subscribers.name, subscribers.status,
+    v.first_at, v.num
+    FROM (
+        SELECT subscriber_id, MIN(created_at) AS first_at, COUNT(*) AS num
+        FROM link_clicks WHERE campaign_id=$1 AND subscriber_id IS NOT NULL GROUP BY subscriber_id
+    ) v
+    JOIN subscribers ON (subscribers.id = v.subscriber_id)
+    ORDER BY v.first_at DESC, subscribers.id DESC OFFSET $2 LIMIT (CASE WHEN $3 < 1 THEN NULL ELSE $3 END);
+
+-- name: get-campaign-non-viewers
+-- Approximation of "didn't open": current send-eligible members of the
+-- campaign's lists (mirroring next-campaigns' opt-in and blocklist rules)
+-- with no recorded view. List membership may have changed since the send.
+SELECT COUNT(*) OVER () AS total,
+    subscribers.id, subscribers.uuid, subscribers.email, subscribers.name, subscribers.status,
+    NULL::TIMESTAMPTZ AS first_at, 0 AS num
+    FROM subscribers
+    WHERE subscribers.id IN (
+            SELECT sl.subscriber_id FROM subscriber_lists sl
+                JOIN campaign_lists cl ON (cl.campaign_id=$1 AND cl.list_id = sl.list_id)
+                JOIN lists l ON (l.id = sl.list_id)
+            WHERE (CASE WHEN l.optin='double' THEN sl.status='confirmed' ELSE sl.status != 'unsubscribed' END)
+        )
+        AND subscribers.status != 'blocklisted'
+        AND NOT EXISTS (
+            SELECT 1 FROM campaign_views cv WHERE cv.campaign_id=$1 AND cv.subscriber_id = subscribers.id
+        )
+    ORDER BY subscribers.id OFFSET $2 LIMIT (CASE WHEN $3 < 1 THEN NULL ELSE $3 END);
+
+-- name: get-campaign-unsubscribers
+-- Subscribers who unsubscribed via this campaign, newest first. Deleted
+-- subscribers (NULLed by ON DELETE SET NULL) are kept as blank rows so the
+-- total matches the summary's unsub count.
+SELECT COUNT(*) OVER () AS total,
+    COALESCE(subscribers.id, 0) AS id,
+    COALESCE(subscribers.uuid::TEXT, '') AS uuid,
+    COALESCE(subscribers.email, '') AS email,
+    COALESCE(subscribers.name, '') AS name,
+    COALESCE(subscribers.status::TEXT, '') AS status,
+    cu.created_at AS first_at, 1 AS num
+    FROM campaign_unsubs cu
+    LEFT JOIN subscribers ON (subscribers.id = cu.subscriber_id)
+    WHERE cu.campaign_id=$1
+    ORDER BY cu.created_at DESC, cu.id DESC OFFSET $2 LIMIT (CASE WHEN $3 < 1 THEN NULL ELSE $3 END);
 
 -- name: export-campaign-views
 SELECT campaign_views.campaign_id,

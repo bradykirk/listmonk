@@ -134,14 +134,34 @@
 
       <b-table-column v-slot="props" field="stats" :label="$t('campaigns.stats')" width="15%">
         <div class="fields stats" :set="stats = getCampaignStats(props.row)">
-          <p>
-            <label for="#">{{ $t('campaigns.views') }}</label>
-            <span>{{ $utils.formatNumber(props.row.views) }}</span>
-          </p>
-          <p>
-            <label for="#">{{ $t('campaigns.clicks') }}</label>
-            <span>{{ $utils.formatNumber(props.row.clicks) }}</span>
-          </p>
+          <template v-if="hasRates(props.row)">
+            <p>
+              <label for="#">{{ $t('analytics.opened') }}</label>
+              <span>
+                <b-tooltip :label="rateTooltip(props.row.viewsUnique, props.row.views, props.row)" type="is-dark">
+                  {{ ratePct(props.row.viewsUnique, delivered(props.row)) }}
+                </b-tooltip>
+              </span>
+            </p>
+            <p>
+              <label for="#">{{ $t('analytics.clicked') }}</label>
+              <span>
+                <b-tooltip :label="rateTooltip(props.row.clicksUnique, props.row.clicks, props.row)" type="is-dark">
+                  {{ ratePct(props.row.clicksUnique, delivered(props.row)) }}
+                </b-tooltip>
+              </span>
+            </p>
+          </template>
+          <template v-else>
+            <p>
+              <label for="#">{{ $t('campaigns.views') }}</label>
+              <span>{{ $utils.formatNumber(props.row.views) }}</span>
+            </p>
+            <p>
+              <label for="#">{{ $t('campaigns.clicks') }}</label>
+              <span>{{ $utils.formatNumber(props.row.clicks) }}</span>
+            </p>
+          </template>
           <p>
             <label for="#">{{ $t('campaigns.sent') }}</label>
             <span>
@@ -252,8 +272,8 @@
             </b-tooltip>
           </a>
           <router-link v-if="$can('campaigns:get_analytics')"
-            :to="{ name: 'campaignAnalytics', query: { id: props.row.id } }">
-            <b-tooltip :label="$t('globals.terms.analytics')" type="is-dark">
+            :to="{ name: 'campaignReport', params: { id: props.row.id } }">
+            <b-tooltip :label="$t('analytics.report')" type="is-dark">
               <b-icon icon="chart-bar" size="is-small" />
             </b-tooltip>
           </router-link>
@@ -382,6 +402,35 @@ export default Vue.extend({
     // if there's live stats available for running campaigns. Otherwise,
     // it returns the incoming campaign object that has the static stats
     // values.
+    hasRates(c) {
+      // Rates need individual tracking, a finished-ish send, and attributed
+      // (per-subscriber) events. Campaigns sent before tracking was enabled
+      // have only anonymous events and would misleadingly show 0% rates, and
+      // running campaigns mix a live sent count with snapshot stats, so both
+      // fall back to raw counts.
+      if (!this.serverConfig.privacy.individual_tracking || c.sent <= 0 || this.isRunning(c.id)) {
+        return false;
+      }
+      return c.viewsUnique > 0 || c.clicksUnique > 0 || (c.views === 0 && c.clicks === 0);
+    },
+
+    delivered(c) {
+      return Math.max(c.sent - c.bouncesUnique, 0);
+    },
+
+    rateTooltip(uniq, total, c) {
+      const del = this.$utils.formatNumber(this.delivered(c));
+      return `${this.$utils.formatNumber(uniq)} / ${del} ${this.$t('analytics.delivered').toLowerCase()}`
+        + ` · ${this.$utils.formatNumber(total)} ${this.$t('analytics.total').toLowerCase()}`;
+    },
+
+    ratePct(n, d) {
+      if (!d) {
+        return '0%';
+      }
+      return `${((n / d) * 100).toFixed(1)}%`;
+    },
+
     getCampaignStats(c) {
       if (c.id in this.campaignStatsData) {
         return this.campaignStatsData[c.id];
@@ -525,7 +574,7 @@ export default Vue.extend({
   },
 
   computed: {
-    ...mapState(['campaigns', 'loading']),
+    ...mapState(['campaigns', 'loading', 'serverConfig']),
 
     numSelectedCampaigns() {
       return this.bulk.all ? this.campaigns.total : this.bulk.checked.length;

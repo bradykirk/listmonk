@@ -421,6 +421,64 @@ func (c *Core) GetCampaignAnalyticsLinks(campIDs []int, typ, fromDate, toDate st
 	return out, nil
 }
 
+// GetCampaignAnalyticsSummary returns lifetime aggregate engagement counts
+// for a single campaign.
+func (c *Core) GetCampaignAnalyticsSummary(campID int) (models.CampaignAnalyticsSummary, error) {
+	var out models.CampaignAnalyticsSummary
+	if err := c.q.GetCampaignSummary.Get(&out, campID); err != nil {
+		c.log.Printf("error fetching campaign summary: %v", err)
+		return out, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "{globals.terms.analytics}", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}
+
+// GetCampaignLinkStats returns per-URL total and unique click counts for a
+// single campaign.
+func (c *Core) GetCampaignLinkStats(campID int) ([]models.CampaignLinkStat, error) {
+	out := []models.CampaignLinkStat{}
+	if err := c.q.GetCampaignLinkStats.Select(&out, campID); err != nil {
+		c.log.Printf("error fetching campaign link stats: %v", err)
+		return nil, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "{globals.terms.analytics}", "error", pqErrMsg(err)))
+	}
+
+	return out, nil
+}
+
+// GetCampaignSubscriberActivity returns a paginated subscriber drill-down list
+// for a campaign: viewed | clicked | not_viewed | unsubscribed.
+func (c *Core) GetCampaignSubscriberActivity(campID int, typ string, offset, limit int) ([]models.CampaignSubscriberActivity, int, error) {
+	var stmt *sqlx.Stmt
+	switch typ {
+	case "viewed":
+		stmt = c.q.GetCampaignViewers
+	case "clicked":
+		stmt = c.q.GetCampaignClickers
+	case "not_viewed":
+		stmt = c.q.GetCampaignNonViewers
+	case "unsubscribed":
+		stmt = c.q.GetCampaignUnsubscribers
+	default:
+		return nil, 0, echo.NewHTTPError(http.StatusBadRequest, c.i18n.T("globals.messages.invalidData"))
+	}
+
+	out := []models.CampaignSubscriberActivity{}
+	if err := stmt.Select(&out, campID, offset, limit); err != nil {
+		c.log.Printf("error fetching campaign subscriber activity: %v", err)
+		return nil, 0, echo.NewHTTPError(http.StatusInternalServerError,
+			c.i18n.Ts("globals.messages.errorFetching", "name", "{globals.terms.analytics}", "error", pqErrMsg(err)))
+	}
+
+	total := 0
+	if len(out) > 0 {
+		total = out[0].Total
+	}
+
+	return out, total, nil
+}
+
 // RegisterCampaignView registers a subscriber's view on a campaign.
 func (c *Core) RegisterCampaignView(campUUID, subUUID string) error {
 	if _, err := c.q.RegisterCampaignView.Exec(campUUID, subUUID); err != nil {

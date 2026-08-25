@@ -333,6 +333,21 @@ export const getCampaignLinkCounts = async (params) => http.get(
   { params, loading: models.campaigns },
 );
 
+export const getCampaignAnalyticsSummary = async (id) => http.get(
+  `/api/campaigns/${id}/analytics/summary`,
+  { loading: models.campaigns },
+);
+
+export const getCampaignLinkStats = async (id) => http.get(
+  `/api/campaigns/${id}/analytics/links`,
+  { loading: models.campaigns },
+);
+
+export const getCampaignSubscriberActivity = async (id, params) => http.get(
+  `/api/campaigns/${id}/analytics/subscribers`,
+  { params, loading: models.campaigns },
+);
+
 export const convertCampaignContent = async (data) => http.post(
   `/api/campaigns/${data.id}/content`,
   data,

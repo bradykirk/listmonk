@@ -89,6 +89,13 @@ type CampaignMeta struct {
 	Clicks     int `db:"clicks" json:"clicks"`
 	Bounces    int `db:"bounces" json:"bounces"`
 
+	// Unique (per-subscriber) counts. These only cover events recorded while
+	// privacy.individual_tracking was on; anonymous events are excluded.
+	ViewsUnique   int `db:"views_unique" json:"views_unique"`
+	ClicksUnique  int `db:"clicks_unique" json:"clicks_unique"`
+	BouncesUnique int `db:"bounces_unique" json:"bounces_unique"`
+	Unsubs        int `db:"unsubs" json:"unsubs"`
+
 	// This is a list of {list_id, name} pairs unlike Subscriber.Lists[]
 	// because lists can be deleted after a campaign is finished, resulting
 	// in null lists data to be returned. For that reason, campaign_lists maintains
@@ -129,6 +136,10 @@ func (camps Campaigns) LoadStats(stmt *sqlx.Stmt) error {
 			camps[i].Views = c.Views
 			camps[i].Clicks = c.Clicks
 			camps[i].Bounces = c.Bounces
+			camps[i].ViewsUnique = c.ViewsUnique
+			camps[i].ClicksUnique = c.ClicksUnique
+			camps[i].BouncesUnique = c.BouncesUnique
+			camps[i].Unsubs = c.Unsubs
 			camps[i].Media = c.Media
 		}
 	}
@@ -302,4 +313,57 @@ func (c *Campaign) ConvertContent(from, to string) (string, error) {
 	}
 
 	return out, nil
+}
+
+// CampaignAnalyticsSummary holds lifetime aggregate engagement counts and
+// computed rates for a single campaign.
+type CampaignAnalyticsSummary struct {
+	CampaignID int `db:"-" json:"campaign_id"`
+	Sent       int `db:"-" json:"sent"`
+	ToSend     int `db:"-" json:"to_send"`
+
+	// Delivered = sent - bounced (distinct hard/soft bounced subscribers).
+	Delivered int `db:"-" json:"delivered"`
+
+	ViewsTotal   int `db:"views_total" json:"views_total"`
+	ViewsUnique  int `db:"views_unique" json:"views_unique"`
+	ClicksTotal  int `db:"clicks_total" json:"clicks_total"`
+	ClicksUnique int `db:"clicks_unique" json:"clicks_unique"`
+	Bounced      int `db:"bounced" json:"bounced"`
+	BouncedHard  int `db:"bounced_hard" json:"bounced_hard"`
+	BouncedSoft  int `db:"bounced_soft" json:"bounced_soft"`
+	Complaints   int `db:"complaints" json:"complaints"`
+	Unsubs       int `db:"unsubs" json:"unsubs"`
+
+	// IndividualTracking indicates whether unique counts and the rates derived
+	// from them are meaningful under the current privacy settings.
+	IndividualTracking bool `db:"-" json:"individual_tracking"`
+
+	// Rates are percentages over delivered. They are null when individual
+	// tracking is off, as unique counts are then unavailable.
+	OpenRate    *float64 `db:"-" json:"open_rate"`
+	ClickRate   *float64 `db:"-" json:"click_rate"`
+	ClickToOpen *float64 `db:"-" json:"click_to_open_rate"`
+	BounceRate  float64  `db:"-" json:"bounce_rate"`
+	UnsubRate   float64  `db:"-" json:"unsub_rate"`
+}
+
+// CampaignLinkStat is one URL's click stats for a campaign.
+type CampaignLinkStat struct {
+	URL    string `db:"url" json:"url"`
+	Total  int    `db:"total" json:"total"`
+	Unique int    `db:"unique_subs" json:"unique"`
+}
+
+// CampaignSubscriberActivity is one subscriber row in a campaign activity
+// drill-down list (opened / clicked / didn't open / unsubscribed).
+type CampaignSubscriberActivity struct {
+	Total   int       `db:"total" json:"-"`
+	ID      int       `db:"id" json:"id"`
+	UUID    string    `db:"uuid" json:"uuid"`
+	Email   string    `db:"email" json:"email"`
+	Name    string    `db:"name" json:"name"`
+	Status  string    `db:"status" json:"status"`
+	FirstAt null.Time `db:"first_at" json:"first_at"`
+	Num     int       `db:"num" json:"count"`
 }

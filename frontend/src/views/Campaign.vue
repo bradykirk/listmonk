@@ -13,6 +13,10 @@
             {{ $t('globals.fields.id') }}: <copy-text :text="`${data.id}`" />
             {{ $t('globals.fields.uuid') }}: <copy-text :text="data.uuid" />
           </span>
+          <router-link v-if="isEditing && data.status !== 'draft' && $can('campaigns:get_analytics')"
+            :to="{ name: 'campaignReport', params: { id: data.id } }" class="is-size-7">
+            <b-icon icon="chart-bar" size="is-small" /> {{ $t('analytics.report') }}
+          </router-link>
         </p>
         <h4 v-if="isEditing" class="title is-4">
           {{ data.name }}

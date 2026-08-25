@@ -253,18 +253,34 @@ UPDATE subscriber_lists SET status='unsubscribed', updated_at=NOW()
 -- If $3 is TRUE, then all subscriptions of the subscriber is blocklisted
 -- and all existing subscriptions, irrespective of lists, unsubscribed.
 WITH lists AS (
-    SELECT list_id FROM campaign_lists
+    SELECT campaigns.id AS campaign_id, list_id FROM campaign_lists
     LEFT JOIN campaigns ON (campaign_lists.campaign_id = campaigns.id)
     WHERE campaigns.uuid = $1
 ),
 sub AS (
     UPDATE subscribers SET status = (CASE WHEN $3 IS TRUE THEN 'blocklisted' ELSE status END)
     WHERE uuid = $2 RETURNING id
+),
+updated AS (
+    UPDATE subscriber_lists SET status = 'unsubscribed', updated_at=NOW() WHERE
+        subscriber_id = (SELECT id FROM sub) AND status != 'unsubscribed' AND
+        -- If $3 is false, unsubscribe from the campaign's lists, otherwise all lists.
+        CASE WHEN $3 IS FALSE THEN list_id = ANY(SELECT list_id FROM lists) ELSE list_id != 0 END
+    RETURNING subscriber_id
 )
-UPDATE subscriber_lists SET status = 'unsubscribed', updated_at=NOW() WHERE
-    subscriber_id = (SELECT id FROM sub) AND status != 'unsubscribed' AND
-    -- If $3 is false, unsubscribe from the campaign's lists, otherwise all lists.
-    CASE WHEN $3 IS FALSE THEN list_id = ANY(SELECT list_id FROM lists) ELSE list_id != 0 END;
+-- Attribute the unsubscribe to the campaign when at least one subscription
+-- actually flipped, or when the request was a blocklist (a real opt-out even
+-- if all subscriptions were already unsubscribed). The unique index on
+-- (campaign_id, subscriber_id) dedupes repeat visits.
+INSERT INTO campaign_unsubs (campaign_id, subscriber_id)
+    SELECT c.campaign_id, u.subscriber_id
+    FROM (
+        SELECT subscriber_id FROM updated
+        UNION
+        SELECT id AS subscriber_id FROM sub WHERE $3 IS TRUE
+    ) u,
+    (SELECT campaign_id FROM lists LIMIT 1) c
+    ON CONFLICT DO NOTHING;
 
 -- name: delete-unconfirmed-subscriptions
 WITH optins AS (
