@@ -180,9 +180,15 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 	}
 
 	// gunmade fork: guarantee a way out. Both the template and the campaign's
-	// own content count, because either may carry the link. See
-	// models/autounsubscribe.go.
-	if !hasUnsubscribe(c.TemplateBody, c.Body) {
+	// own content count, because either may carry the link — EXCEPT for visual
+	// campaigns, which never render their template (the base body above is
+	// replaced with a bare content include). A link that lives only in the
+	// attached template never reaches a visual email, so the template must not
+	// satisfy the check. This exact miss shipped visual campaigns with no
+	// unsubscribe link. See models/autounsubscribe.go.
+	needsUnsub := !hasUnsubscribe(c.Body) &&
+		(c.ContentType == CampaignContentTypeVisual || !hasUnsubscribe(c.TemplateBody))
+	if needsUnsub && c.ContentType != CampaignContentTypeVisual {
 		if tracksAsHTML(c.ContentType) {
 			body = autoUnsubscribeHTML(body)
 		} else {
@@ -214,6 +220,14 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 	// not added here — it belongs once, in the base template above.
 	if tracksAsHTML(c.ContentType) {
 		body = autoTrackLinks(body)
+	}
+
+	// gunmade fork: a visual body is a complete HTML document that renders
+	// without the base template, so the guaranteed unsubscribe footer must
+	// live inside that document, before its own </body> — a footer appended
+	// to the base wrapper would land after </html>.
+	if needsUnsub && c.ContentType == CampaignContentTypeVisual {
+		body = autoUnsubscribeHTML(body)
 	}
 
 	// Compile the campaign message.
