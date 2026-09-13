@@ -325,3 +325,135 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.dow, t.hour), '[]') FROM (
       AND c.started_at IS NOT NULL
     GROUP BY 1, 2
 ) t;
+
+
+-- name: get-dashboard-growth
+-- Signups, unsubscribes and audience size per day (or week) for the home
+-- Dashboard's audience growth section, as one JSON object.
+--
+-- $1 IANA time zone of the viewer, $2 number of buckets, $3 'day' or 'week',
+-- $4 the current time, $5 the range label (echoed back).
+--
+-- Counting rules:
+-- * A person is a subscriber with at least one list subscription. Each person
+--   counts once, on subscribers.created_at.
+-- * A person is in the audience while enabled with at least one subscription
+--   that is not unsubscribed.
+-- * A person who is not in the audience left at the latest evidence of leaving:
+--   an unsubscribed subscription's updated_at, the subscriber's updated_at when
+--   not enabled, a campaign_unsubs row, or a bounce. The last two matter because
+--   the unsubscribe-link and bounce paths do not always bump updated_at.
+-- * A person blocklisted with no evidence later than a minute after creation
+--   (a blocklist import, say) never joined and is left out.
+-- * Timestamps in the future are clamped into the current bucket, so the last
+--   point always equals audience_now.
+--
+-- History is rebuilt from current state, so it is approximate: deleted
+-- subscribers and deleted memberships are gone, and a person who unsubscribed
+-- and later rejoined counts by their current state.
+--
+-- Every parameter is cast once in params so that Postgres never has to infer a
+-- type from a later context.
+WITH params AS (
+    SELECT $1::TEXT AS tz, $2::INT AS buckets, $3::TEXT AS unit, $4::TIMESTAMPTZ AS now, $5::TEXT AS label
+),
+rng AS (
+    SELECT
+        p.tz,
+        p.unit,
+        date_trunc(p.unit, p.now AT TIME ZONE p.tz)::DATE AS last_bucket,
+        date_trunc(p.unit, p.now AT TIME ZONE p.tz)::DATE
+            - (p.buckets - 1) * (CASE WHEN p.unit = 'week' THEN 7 ELSE 1 END) AS first_bucket,
+        (CASE WHEN p.unit = 'week' THEN 7 ELSE 1 END) AS step,
+        p.buckets
+    FROM params p
+),
+subs AS (
+    SELECT
+        subscriber_id,
+        BOOL_OR(status <> 'unsubscribed')                        AS has_active,
+        MAX(updated_at) FILTER (WHERE status = 'unsubscribed')   AS unsub_at
+    FROM subscriber_lists
+    GROUP BY subscriber_id
+),
+cu AS (
+    SELECT subscriber_id, MAX(created_at) AS at
+    FROM campaign_unsubs
+    WHERE subscriber_id IS NOT NULL
+    GROUP BY subscriber_id
+),
+bo AS (
+    SELECT subscriber_id, MAX(created_at) AS at
+    FROM bounces
+    GROUP BY subscriber_id
+),
+people AS (
+    SELECT
+        s.status,
+        s.created_at,
+        (s.status = 'enabled' AND sb.has_active) AS active,
+        GREATEST(
+            sb.unsub_at,
+            CASE WHEN s.status <> 'enabled' THEN s.updated_at END,
+            cu.at,
+            CASE WHEN s.status = 'blocklisted' OR NOT sb.has_active THEN bo.at END
+        ) AS evidence
+    FROM subscribers s
+    JOIN subs sb ON sb.subscriber_id = s.id
+    LEFT JOIN cu ON cu.subscriber_id = s.id
+    LEFT JOIN bo ON bo.subscriber_id = s.id
+    WHERE s.created_at IS NOT NULL
+),
+marks AS (
+    SELECT
+        LEAST(date_trunc(r.unit, pe.created_at AT TIME ZONE r.tz)::DATE, r.last_bucket) AS joined_on,
+        (CASE WHEN pe.active THEN NULL
+         ELSE LEAST(
+            date_trunc(r.unit, GREATEST(COALESCE(pe.evidence, pe.created_at), pe.created_at) AT TIME ZONE r.tz)::DATE,
+            r.last_bucket)
+         END) AS left_on
+    FROM people pe
+    CROSS JOIN rng r
+    WHERE NOT (pe.status = 'blocklisted'
+               AND COALESCE(pe.evidence, pe.created_at) < pe.created_at + INTERVAL '1 minute')
+),
+buckets AS (
+    SELECT r.first_bucket + i * r.step AS d
+    FROM rng r, generate_series(0, r.buckets - 1) AS i
+),
+joins AS (
+    SELECT joined_on AS d, COUNT(*) AS n FROM marks GROUP BY 1
+),
+lefts AS (
+    SELECT left_on AS d, COUNT(*) AS n FROM marks WHERE left_on IS NOT NULL GROUP BY 1
+),
+baseline AS (
+    SELECT
+        COUNT(*) FILTER (WHERE m.joined_on < r.first_bucket)
+        - COUNT(*) FILTER (WHERE m.left_on < r.first_bucket) AS n
+    FROM marks m
+    CROSS JOIN rng r
+),
+series AS (
+    SELECT
+        b.d,
+        COALESCE(j.n, 0)::INT AS signups,
+        COALESCE(l.n, 0)::INT AS unsubscribes,
+        (bl.n + SUM(COALESCE(j.n, 0) - COALESCE(l.n, 0)) OVER (ORDER BY b.d))::INT AS audience
+    FROM buckets b
+    LEFT JOIN joins j ON j.d = b.d
+    LEFT JOIN lefts l ON l.d = b.d
+    CROSS JOIN baseline bl
+)
+SELECT JSON_BUILD_OBJECT(
+    'range',        (SELECT label FROM params),
+    'bucket',       (SELECT unit FROM params),
+    'tz',           (SELECT tz FROM params),
+    'audience_now', (SELECT COUNT(*)::INT FROM marks WHERE left_on IS NULL),
+    'signups',      (SELECT COALESCE(SUM(signups), 0)::INT FROM series),
+    'unsubscribes', (SELECT COALESCE(SUM(unsubscribes), 0)::INT FROM series),
+    'net',          (SELECT (COALESCE(SUM(signups), 0) - COALESCE(SUM(unsubscribes), 0))::INT FROM series),
+    'series',       (SELECT COALESCE(JSON_AGG(JSON_BUILD_OBJECT(
+                        'date', d, 'signups', signups, 'unsubscribes', unsubscribes, 'audience', audience
+                    ) ORDER BY d), '[]') FROM series)
+);

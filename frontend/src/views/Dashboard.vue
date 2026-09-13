@@ -8,6 +8,9 @@
       </div>
     </header>
 
+    <!-- gunmade fork: audience growth -->
+    <dashboard-growth v-if="$can('subscribers:get_all')" />
+
     <section class="counts wrap">
       <div class="tile is-ancestor">
         <div class="tile is-vertical is-12">
@@ -154,10 +157,12 @@ import Vue from 'vue';
 import { mapState } from 'vuex';
 import { colors } from '../constants';
 import Chart from '../components/Chart.vue';
+import DashboardGrowth from '../components/DashboardGrowth.vue';
 
 export default Vue.extend({
   components: {
     Chart,
+    DashboardGrowth,
   },
 
   data() {

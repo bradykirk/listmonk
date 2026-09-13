@@ -113,6 +113,9 @@ export const getDashboardCharts = () => http.get(
   { loading: models.dashboard },
 );
 
+// Dashboard audience growth (gunmade fork).
+export const getDashboardGrowth = (params) => http.get('/api/dashboard/growth', { params });
+
 // List analytics (gunmade fork).
 export const getAnalyticsGrowth = (params) => http.get('/api/analytics/growth', { params });
 export const getAnalyticsCampaigns = () => http.get('/api/analytics/campaigns');

@@ -22,6 +22,7 @@ type Queries struct {
 	GetAnalyticsDomains          *sqlx.Stmt `query:"get-analytics-domains"`
 	GetAnalyticsSendTimes        *sqlx.Stmt `query:"get-analytics-send-times"`
 	GetDashboardCounts           *sqlx.Stmt `query:"get-dashboard-counts"`
+	GetDashboardGrowth           *sqlx.Stmt `query:"get-dashboard-growth"`
 
 	InsertSubscriber                *sqlx.Stmt `query:"insert-subscriber"`
 	UpsertSubscriber                *sqlx.Stmt `query:"upsert-subscriber"`

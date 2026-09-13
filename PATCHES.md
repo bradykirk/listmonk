@@ -343,3 +343,79 @@ Verified against a live Postgres 16: fresh install, the v6.2.0 → v6.2.1
 upgrade path, endpoint math by hand, unsubscribe attribution (dedup,
 blocklist, deleted-subscriber cases), and the rendered UI. A 23-agent
 adversarial review confirmed 17 findings; all fixed and re-verified.
+
+## Dashboard audience growth (Sep 2026)
+
+An EmailOctopus-style "Audience growth" section at the top of the home
+Dashboard: a 7 days / 30 days / 90 days / 12 months selector, four numbers
+(audience now, new signups, unsubscribes, net growth) and one chart with signup
+bars and an audience-size line. Days follow the viewer's browser time zone. The
+12 month range uses weekly buckets (Mondays). No schema change.
+
+`GET /api/dashboard/growth?range=30d&tz=America/Chicago`, permission
+`subscribers:get_all`. The Dashboard hides the section from users without it.
+Invalid `range` or `tz` returns 400.
+
+**Counting rules** (full comments on `get-dashboard-growth` in
+`queries/analytics.sql`):
+
+- A person is a subscriber with at least one list subscription; each person
+  counts once, on `subscribers.created_at`. Imports and unconfirmed double
+  opt-ins count. Orphans (no lists) are left out.
+- In the audience = `enabled` with at least one subscription that is not
+  `unsubscribed`.
+- A person who left is dated by the latest of: an unsubscribed subscription's
+  `updated_at`, `subscribers.updated_at` when not enabled, `campaign_unsubs`,
+  and `bounces`. The last two are required: `unsubscribe-by-campaign` and
+  `record-bounce` change status without always touching either `updated_at`.
+- Blocklisted with no leave evidence later than one minute after creation
+  (a blocklist import) = never joined, left out.
+- Future timestamps are clamped into the current bucket, so the last chart point
+  always equals "audience now".
+
+**Approximate by design.** History is rebuilt from current state: deleted
+subscribers and deleted memberships vanish from it; removing someone's last
+active list dates their exit to an older unsubscribe; a person who unsubscribed
+and rejoined counts by current state. The note under the chart says that
+unsubscribe dates and past audience sizes are approximate and that deleted
+subscribers and removed list memberships are not in the history; the finer
+points above are recorded here only. Exact history needs a daily snapshot table
+(a schema change — rule 2).
+
+**Performance.** Computed live, not cached. On 200,000 subscribers and 600,000
+memberships (Postgres 17 in Docker on an M-series Mac) it runs in 240–370 ms for
+both 30 days and 12 months. If production grows well past that, move it to a
+materialized view like `mat_dashboard_charts`.
+
+New files (no rebase risk): `internal/core/dashboard_growth.go` (range and time
+zone parsing, core method), `internal/core/dashboard_growth_test.go`,
+`internal/core/dashboard_growth_db_test.go`, `cmd/dashboard_growth.go` (handler),
+`frontend/src/components/DashboardGrowth.vue`.
+
+Modified files: `queries/analytics.sql` (appended query), `models/queries.go`
+(1 field), `cmd/handlers.go` (1 route next to `/api/dashboard/counts`),
+`frontend/src/api/index.js` (1 function below `getDashboardCharts`),
+`frontend/src/views/Dashboard.vue` (import, registration and one
+`<dashboard-growth v-if="$can('subscribers:get_all')" />` above the count
+tiles — upstream file, re-add after a rebase).
+
+**Tests.** The DB test is skipped unless `LISTMONK_TEST_DSN` is set:
+
+```sh
+docker run -d --name lm-test-db -e POSTGRES_USER=lmtest -e POSTGRES_PASSWORD=lmtest \
+  -e POSTGRES_DB=lmtest -p 127.0.0.1:55432:5432 postgres:17-alpine
+LISTMONK_TEST_DSN='postgres://lmtest:lmtest@127.0.0.1:55432/lmtest?sslmode=disable' \
+  go test ./internal/core/ -run 'Growth' -v
+```
+
+It installs `schema.sql` into a throwaway database, prepares every query in
+`queries/*.sql` (so a broken query fails the test instead of production boot),
+and checks exact per-day values for 14 fixture people: Chicago vs UTC day
+boundaries, the 2026-11-01 DST change, blocklist by link and by bounce, blocklist
+at creation, orphans, disabled, and a future `created_at`. The tests live in
+`internal/core`, not `cmd`: `cmd`'s `init()` loads `config.toml` and exits when
+it is missing, so any test in `cmd` breaks `go test ./...`.
+
+**v7 note.** Upstream removes the Vue admin in v7.0.0 for a server-rendered UI.
+The query, core method, handler and tests carry over; `DashboardGrowth.vue` and
+the `Dashboard.vue` hook must be rebuilt in the new UI.
