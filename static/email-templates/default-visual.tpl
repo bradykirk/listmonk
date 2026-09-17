@@ -12,7 +12,7 @@
           <tr style="width:100%">
             <td>
               <h3 style="font-weight:bold;margin:0;font-size:20px;padding:16px 24px 16px 24px">
-                Hello {{ .Subscriber.Name }}
+                Hello{{ if .Subscriber.FirstName }} {{ .Subscriber.FirstName }}{{ end }}
               </h3>
               <div style="font-weight:normal;padding:16px 24px 16px 24px">
                 <p>

@@ -19,7 +19,7 @@
     "type": "Heading",
     "data": {
       "props": {
-        "text": "Hello {{ .Subscriber.Name }}",
+        "text": "Hello{{ if .Subscriber.FirstName }} {{ .Subscriber.FirstName }}{{ end }}",
         "level": "h3"
       },
       "style": {

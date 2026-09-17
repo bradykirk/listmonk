@@ -249,7 +249,7 @@ func installCampaign(campTplID, archiveTplID int, q *models.Queries) {
 		"Test campaign",
 		"Welcome to listmonk",
 		"No Reply <noreply@yoursite.com>",
-		`<h3>Hi {{ .Subscriber.FirstName }}!</h3>
+		`<h3>Hi{{ if .Subscriber.FirstName }} {{ .Subscriber.FirstName }}{{ end }}!</h3>
 		<p>This is a test e-mail campaign. Your second name is {{ .Subscriber.LastName }} and you are from {{ .Subscriber.Attribs.city }}.</p>
 		<p>Here is a <a href="https://listmonk.app@TrackLink">tracked link</a>.</p>
 		<p>Use the link icon in the editor toolbar or when writing raw HTML or Markdown,

@@ -30,8 +30,8 @@ There are several template functions and expressions that can be used in campaig
 | `{{ .Subscriber.UUID }}`      | The randomly generated unique ID of the subscriber                                           |
 | `{{ .Subscriber.Email }}`     | E-mail ID of the subscriber                                                                  |
 | `{{ .Subscriber.Name }}`      | Name of the subscriber                                                                       |
-| `{{ .Subscriber.FirstName }}` | First name of the subscriber (automatically extracted from the name)                         |
-| `{{ .Subscriber.LastName }}`  | Last name of the subscriber (automatically extracted from the name)                          |
+| `{{ .Subscriber.FirstName }}` | First name of the subscriber. Empty when unknown; use `{{ if .Subscriber.FirstName }}`       |
+| `{{ .Subscriber.LastName }}`  | Last name of the subscriber. Empty when unknown                                              |
 | `{{ .Subscriber.Status }}`    | Status of the subscriber (enabled, disabled, blocklisted)                                    |
 | `{{ .Subscriber.Attribs }}`   | Map of arbitrary attributes. Fields can be accessed with `.`, eg: `.Subscriber.Attribs.city` |
 | `{{ .Subscriber.CreatedAt }}` | Timestamp when the subscriber was first added                                                |
