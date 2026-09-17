@@ -109,7 +109,11 @@ func RunFork(db *sqlx.DB, lo *log.Logger) error {
 
 	for _, s := range subs {
 		if models.IsFallbackName(s.Name, s.Email) {
-			// The new columns already default to ''.
+			// The new columns already default to ''. Log the cleared name here,
+			// before the old `name` column is dropped below, so it stays
+			// recoverable from the deploy log and not only from the pre-deploy
+			// backup.
+			lo.Printf("gunmade fork migration blanking name: id=%d email=%s name=%q", s.ID, s.Email, s.Name)
 			blanked++
 			continue
 		}

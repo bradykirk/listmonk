@@ -144,7 +144,7 @@ describe('Subscribers', () => {
         id = parseInt($el.text());
 
         cy.get('input[name=email]').clear().type(email);
-        cy.get('input[name=name]').clear().type(name);
+        cy.get('input[name=first_name]').clear().type(name);
 
         if (status[n] === 'blocklisted') {
           cy.get('select[name=status]').select(status[n]);
@@ -207,7 +207,7 @@ describe('Subscribers', () => {
 
       cy.get('[data-cy=btn-new]').click();
       cy.get('input[name=email]').type(email);
-      cy.get('input[name=name]').type(name);
+      cy.get('input[name=first_name]').type(name);
       cy.get('select[name=status]').select(status);
 
       list.forEach((l) => {

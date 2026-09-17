@@ -48,10 +48,14 @@ type subOptin struct {
 
 var (
 	dummySubscriber = models.Subscriber{
-		Email:   "demo@listmonk.app",
-		Name:    "Demo Subscriber",
-		UUID:    dummyUUID,
-		Attribs: models.JSON{"city": "Bengaluru"},
+		Email: "demo@listmonk.app",
+		Name:  "Demo Subscriber",
+		// gunmade fork: FirstName/LastName are stored fields now, not derived
+		// from Name, so previews need them set to render the greeting.
+		FirstName: "Demo",
+		LastName:  "Subscriber",
+		UUID:      dummyUUID,
+		Attribs:   models.JSON{"city": "Bengaluru"},
 	}
 )
 

@@ -475,7 +475,11 @@ New files (no rebase risk): `models/names.go`, `models/names_test.go`,
 **Before deploying.** Back up `listmonk-data` (the step drops and re-creates a
 column), run `go run ./scripts/fork/namecheck -dsn ...` against a copy of
 production, and edit any greeting it lists. Coolify deploys every push to
-`gunmade`, so merging is deploying.
+`gunmade`, so merging is deploying. Rolling the image back alone is not
+enough: the old build prepares every query at startup, and `insert-subscriber`
+fails to prepare against a generated `name` column, so the previous image will
+not boot against a migrated database. A rollback means restoring the backup
+as well.
 
 **Tests.**
 
