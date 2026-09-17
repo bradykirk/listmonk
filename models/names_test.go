@@ -102,6 +102,10 @@ func TestResolveSubscriberNames(t *testing.T) {
 			Subscriber{FirstName: "Janet", LastName: "Smith", Name: "Janet Smith"}},
 		{"patch: nothing changed", stored, &stored, stored},
 		{"patch: name cleared", Subscriber{FirstName: "Mary", LastName: "Smith", Name: ""}, &stored, Subscriber{}},
+		{"patch: nothing changed, first name blank",
+			Subscriber{FirstName: "", LastName: "Smith", Name: "Smith"},
+			&Subscriber{FirstName: "", LastName: "Smith", Name: "Smith"},
+			Subscriber{FirstName: "", LastName: "Smith", Name: "Smith"}},
 	}
 
 	for _, c := range cases {

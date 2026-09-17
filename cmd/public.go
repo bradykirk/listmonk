@@ -301,10 +301,12 @@ func (a *App) SubscriptionPrefs(c echo.Context) error {
 			makeMsgTpl(a.i18n.T("public.errorTitle"), "", a.i18n.Ts("globals.messages.pFound",
 				"name", a.i18n.T("globals.terms.subscriber"))))
 	}
-	// gunmade fork: the page has a single name input.
+	// gunmade fork: the page has a single name input. Pass the stored
+	// subscriber as prev so the parts are only re-derived when the
+	// subscriber actually edited the name.
+	prev := sub
 	sub.Name = req.Name
-	sub.FirstName, sub.LastName = "", ""
-	models.ResolveSubscriberNames(&sub, nil)
+	models.ResolveSubscriberNames(&sub, &prev)
 
 	// Update the subscriber properties in the DB.
 	if _, err := a.core.UpdateSubscriber(sub.ID, sub); err != nil {
