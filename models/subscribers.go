@@ -3,7 +3,6 @@ package models
 import (
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/jmoiron/sqlx/types"
@@ -28,12 +27,17 @@ type Subscribers []Subscriber
 type Subscriber struct {
 	Base
 
-	UUID    string         `db:"uuid" json:"uuid"`
-	Email   string         `db:"email" json:"email" form:"email"`
-	Name    string         `db:"name" json:"name" form:"name"`
-	Attribs JSON           `db:"attribs" json:"attribs"`
-	Status  string         `db:"status" json:"status"`
-	Lists   types.JSONText `db:"lists" json:"lists"`
+	UUID  string `db:"uuid" json:"uuid"`
+	Email string `db:"email" json:"email" form:"email"`
+
+	// gunmade fork: first_name and last_name are stored; name is a generated
+	// column, btrim(first_name || ' ' || last_name). See models/names.go.
+	Name      string         `db:"name" json:"name" form:"name"`
+	FirstName string         `db:"first_name" json:"first_name" form:"first_name"`
+	LastName  string         `db:"last_name" json:"last_name" form:"last_name"`
+	Attribs   JSON           `db:"attribs" json:"attribs"`
+	Status    string         `db:"status" json:"status"`
+	Lists     types.JSONText `db:"lists" json:"lists"`
 }
 
 type subLists struct {
@@ -71,34 +75,6 @@ func (subs Subscribers) LoadLists(stmt *sqlx.Stmt) error {
 	}
 
 	return nil
-}
-
-// FirstName splits the name by spaces and returns the first chunk
-// of the name that's greater than 2 characters in length, assuming
-// that it is the subscriber's first name.
-func (s Subscriber) FirstName() string {
-	for _, s := range strings.Split(s.Name, " ") {
-		if len(s) > 2 {
-			return s
-		}
-	}
-
-	return s.Name
-}
-
-// LastName splits the name by spaces and returns the last chunk
-// of the name that's greater than 2 characters in length, assuming
-// that it is the subscriber's last name.
-func (s Subscriber) LastName() string {
-	chunks := strings.Split(s.Name, " ")
-	for i := len(chunks) - 1; i >= 0; i-- {
-		chunk := chunks[i]
-		if len(chunk) > 2 {
-			return chunk
-		}
-	}
-
-	return s.Name
 }
 
 // Subscription represents a list attached to a subscriber.
