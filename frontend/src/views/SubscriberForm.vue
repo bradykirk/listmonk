@@ -6,7 +6,7 @@
           {{ $t(`subscribers.status.${data.status}`) }}
         </b-tag>
         <h4 v-if="isEditing">
-          {{ data.name }}
+          {{ data.name || data.email }}
         </h4>
         <h4 v-else>
           {{ $t('subscribers.newSubscriber') }}
@@ -24,10 +24,18 @@
             :placeholder="$t('subscribers.email')" required />
         </b-field>
 
+        <!-- gunmade fork: names are stored as first and last name; both are optional. -->
         <div class="columns">
-          <div class="column is-8">
-            <b-field :label="$t('globals.fields.name')" label-position="on-border">
-              <b-input :maxlength="200" v-model="form.name" name="name" :placeholder="$t('globals.fields.name')" />
+          <div class="column is-4">
+            <b-field :label="$t('subscribers.firstName')" label-position="on-border">
+              <b-input :maxlength="200" v-model="form.firstName" name="first_name"
+                :placeholder="$t('subscribers.firstName')" />
+            </b-field>
+          </div>
+          <div class="column is-4">
+            <b-field :label="$t('subscribers.lastName')" label-position="on-border">
+              <b-input :maxlength="200" v-model="form.lastName" name="last_name"
+                :placeholder="$t('subscribers.lastName')" />
             </b-field>
           </div>
           <div class="column is-4">
@@ -195,6 +203,8 @@ export default Vue.extend({
       // Binds form input values. This is populated by subscriber props passed
       // from the parent component in mounted().
       form: {
+        firstName: '',
+        lastName: '',
         lists: [],
         strAttribs: '{}',
         status: 'enabled',
@@ -259,7 +269,8 @@ export default Vue.extend({
 
       const data = {
         email: this.form.email,
-        name: this.form.name,
+        first_name: this.form.firstName,
+        last_name: this.form.lastName,
         status: this.form.status,
         attribs,
         preconfirm_subscriptions: this.form.preconfirm,
@@ -271,7 +282,7 @@ export default Vue.extend({
       this.$api.createSubscriber(data).then((d) => {
         this.$emit('finished');
         this.$parent.close();
-        this.$utils.toast(this.$t('globals.messages.created', { name: d.name }));
+        this.$utils.toast(this.$t('globals.messages.created', { name: d.name || d.email }));
       });
     },
 
@@ -287,7 +298,8 @@ export default Vue.extend({
       const data = {
         id: this.form.id,
         email: this.form.email,
-        name: this.form.name,
+        first_name: this.form.firstName,
+        last_name: this.form.lastName,
         status: this.form.status,
         preconfirm_subscriptions: this.form.preconfirm,
         attribs,
@@ -299,7 +311,7 @@ export default Vue.extend({
       this.$api.updateSubscriber(data).then((d) => {
         this.$emit('finished');
         this.$parent.close();
-        this.$utils.toast(this.$t('globals.messages.updated', { name: d.name }));
+        this.$utils.toast(this.$t('globals.messages.updated', { name: d.name || d.email }));
       });
     },
 
