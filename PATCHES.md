@@ -21,6 +21,10 @@ as the campaigns themselves, instead of a second tool.
    is `CREATE TABLE IF NOT EXISTS` only and touches no upstream table. Rebase
    risk: if upstream ever ships its own `v6.2.1`, rename ours and fix up the
    recorded version in the `settings` table.
+   **Second recorded exception (Sep 2026):** subscriber first/last names and
+   campaign preview text alter two upstream tables. `subscribers.name` becomes a
+   generated column and `campaigns.preview_text` is added. It deliberately does
+   **not** use a `migList` version; see "Subscriber names and preview text" below.
 3. **Put new code in new files.** New files never conflict during a rebase.
    Only five existing files are touched, by 20 lines in total.
 4. **Keep this file current.** When a hunk conflicts during a rebase, the entry
@@ -419,3 +423,58 @@ it is missing, so any test in `cmd` breaks `go test ./...`.
 **v7 note.** Upstream removes the Vue admin in v7.0.0 for a server-rendered UI.
 The query, core method, handler and tests carry over; `DashboardGrowth.vue` and
 the `Dashboard.vue` hook must be rebuilt in the new UI.
+
+## Subscriber names and preview text (Sep 2026)
+
+Spec: `docs/superpowers/specs/2026-09-17-subscriber-names-preview-text-design.md`.
+Plan: `docs/superpowers/plans/2026-09-17-subscriber-names-preview-text.md`.
+
+**What it does.** Subscribers store `first_name` and `last_name`.
+`subscribers.name` is now `GENERATED ALWAYS AS (btrim(first_name || ' ' || last_name)) STORED`,
+so every upstream read of `name` still works and any write to it fails loudly.
+listmonk no longer invents a name from the email address (the importer/admin
+rule and the public form rule are both removed), and the migration blanks the
+names those rules made. Campaigns get a preview text (inbox preheader),
+injected after the first `<body>` at compile time.
+
+**Schema step, and why it is not in `migList`.** `cmd/upgrade.go` runs every
+`migList` entry above the last recorded version; a fork version would make a
+later upstream migration with the same or a lower number skip silently. The
+step lives in `internal/migrations/fork_names_preview.go` (`RunFork`,
+`ForkPending`). `upgrade()` calls it on every `--upgrade`, and `checkUpgrade()`
+checks it on every start, **both before their "nothing pending" early returns**
+— a database at the last `migList` version always takes those returns.
+
+New files (no rebase risk): `models/names.go`, `models/names_test.go`,
+`models/autopreheader.go`, `models/autopreheader_test.go`,
+`internal/migrations/fork_names_preview.go` (+ `_db_test.go`),
+`internal/core/subscriber_names_db_test.go`,
+`internal/core/campaign_preview_db_test.go`,
+`internal/subimporter/names_test.go`, `scripts/fork/namecheck/main.go`,
+`scripts/fork/upgrade-e2e.sh`.
+
+| Modified file | Change | If it conflicts |
+| --- | --- | --- |
+| `schema.sql` | `first_name`, `last_name`, generated `name`; `campaigns.preview_text` | Re-add; the expression must match `fork_names_preview.go`. |
+| `queries/subscribers.sql` | Five write queries write `first_name` (`$3`) and `last_name` (appended last); export selects both | Re-apply. **Grep any new upstream query for writes to `subscribers.name`** — they fail at runtime. |
+| `queries/campaigns.sql` | `create-campaign` `$22`, `update-campaign` `$21` = `preview_text` | Re-append as the last parameter. |
+| `models/subscribers.go` | `FirstName`/`LastName` fields replace upstream's guessing methods | Keep the fields; a method of the same name will not compile. |
+| `models/campaigns.go` | `PreviewText` field; two `preheaderIn` calls in `CompileTemplate` | Re-add: the first right after the base body is chosen, the second after content link tracking. Both before `regTplFuncs`. |
+| `internal/core/subscribers.go`, `internal/core/campaigns.go` | Extra query arguments | Re-add. |
+| `internal/subimporter/importer.go` | CSV `first_name`/`last_name`; statements; `ValidateFields` no longer invents names | Re-apply. |
+| `cmd/upgrade.go` | `runForkStep` in both paths of `upgrade()`; `ForkPending` in `checkUpgrade()` | Re-add **before** the early returns. `scripts/fork/upgrade-e2e.sh` proves it. |
+| `cmd/subscribers.go`, `cmd/public.go`, `cmd/install.go`, `cmd/campaigns.go` | Name resolution, blank-friendly preferences, export columns, preview text validation and test send | Re-apply. |
+| `static/...`, `docs/docs/content/templating.md` | Greetings tolerate blank first names; preferences name input not `required` | Re-apply. |
+| `frontend/src/views/SubscriberForm.vue`, `Campaign.vue`, `Campaigns.vue`, `i18n/en.json` | First/last inputs; preview text input, payloads, clone | Re-add. |
+
+**Before deploying.** Back up `listmonk-data` (the step drops and re-creates a
+column), run `go run ./scripts/fork/namecheck -dsn ...` against a copy of
+production, and edit any greeting it lists. Coolify deploys every push to
+`gunmade`, so merging is deploying.
+
+**Tests.**
+
+```sh
+LISTMONK_TEST_DSN='postgres://lmtest@127.0.0.1:55432/lmtest?sslmode=disable' go test ./...
+scripts/fork/upgrade-e2e.sh
+```
