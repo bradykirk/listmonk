@@ -39,10 +39,12 @@ type Campaign struct {
 	Base
 	CampaignMeta
 
-	UUID              string          `db:"uuid" json:"uuid"`
-	Type              string          `db:"type" json:"type"`
-	Name              string          `db:"name" json:"name"`
-	Subject           string          `db:"subject" json:"subject"`
+	UUID    string `db:"uuid" json:"uuid"`
+	Type    string `db:"type" json:"type"`
+	Name    string `db:"name" json:"name"`
+	Subject string `db:"subject" json:"subject"`
+	// gunmade fork: inbox preview text. See models/autopreheader.go.
+	PreviewText       string          `db:"preview_text" json:"preview_text"`
 	FromEmail         string          `db:"from_email" json:"from_email"`
 	Body              string          `db:"body" json:"body"`
 	BodySource        null.String     `db:"body_source" json:"body_source"`
@@ -172,6 +174,14 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 		body = `{{ template "content" . }}`
 	}
 
+	// gunmade fork: preview text goes after the first <body> the email will
+	// contain. Decided here, before other injectors add markup. See
+	// models/autopreheader.go.
+	preheaderIn := choosePreheaderTarget(c, body)
+	if preheaderIn == preheaderBase {
+		body = autoPreheaderHTML(body)
+	}
+
 	// gunmade fork: add the open pixel and track the template's own links unless
 	// the author already did. See models/autotrack.go.
 	if tracksAsHTML(c.ContentType) {
@@ -220,6 +230,11 @@ func (c *Campaign) CompileTemplate(f template.FuncMap) error {
 	// not added here — it belongs once, in the base template above.
 	if tracksAsHTML(c.ContentType) {
 		body = autoTrackLinks(body)
+	}
+
+	// gunmade fork: preview text inside the campaign's own document.
+	if preheaderIn == preheaderContent {
+		body = autoPreheaderHTML(body)
 	}
 
 	// gunmade fork: a visual body is a complete HTML document that renders
