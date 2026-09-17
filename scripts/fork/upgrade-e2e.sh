@@ -114,4 +114,18 @@ after="$(sql "SELECT string_agg(id || first_name || '|' || last_name || '|' || n
 [ "$before" = "$after" ] || fail "second --upgrade changed subscriber names"
 pass "second --upgrade changed nothing"
 
+echo "== 7. new build's own --install on a fresh database"
+sql2() { "$PGBIN/psql" -h 127.0.0.1 -p "$PORT" -U lmtest -d listmonk2 -Atq -v ON_ERROR_STOP=1 -c "$1"; }
+"$PGBIN/createdb" -h 127.0.0.1 -p "$PORT" -U lmtest listmonk2
+LISTMONK_db__database=listmonk2 LISTMONK_ADMIN_USER=admin LISTMONK_ADMIN_PASSWORD=adminpass123 \
+  run_new --install --idempotent --yes >"$WORK/install2.log" 2>&1 || { cat "$WORK/install2.log"; fail "new build install"; }
+[ "$(sql2 "SELECT count(*) FROM campaigns")" = "1" ] || fail "new build install campaign count"
+[ "$(sql2 "SELECT count(*) FROM users u JOIN roles r ON u.user_role_id = r.id WHERE r.name = 'Super Admin'")" = "1" ] \
+  || fail "new build install missing superadmin"
+pass "new build's --install created a campaign and a superadmin"
+
+LISTMONK_db__database=listmonk2 run_new --upgrade --yes >"$WORK/upgrade3.log" 2>&1 || { cat "$WORK/upgrade3.log"; fail "fresh install --upgrade"; }
+if grep -q "gunmade fork migration applied" "$WORK/upgrade3.log"; then fail "fork step ran on an already-fresh install"; fi
+pass "fresh install's --upgrade is a no-op"
+
 echo "ALL PASSED"
