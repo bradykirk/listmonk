@@ -29,7 +29,7 @@
 
                 <h2>{{ L.T "public.managePrefs" }}</h2>
                 <label>{{ L.T "globals.fields.name" }}</label>
-                <input type="text" name="name" value="{{ .Data.Subscriber.Name }}" maxlength="256" required />
+                <input type="text" name="name" value="{{ .Data.Subscriber.Name }}" maxlength="256" />
 
                 {{ if .Data.Subscriptions }}
                     <br /><br />

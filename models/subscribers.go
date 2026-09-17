@@ -89,11 +89,13 @@ type Subscription struct {
 type SubscriberExport struct {
 	Base
 
-	UUID    string `db:"uuid" json:"uuid"`
-	Email   string `db:"email" json:"email"`
-	Name    string `db:"name" json:"name"`
-	Attribs string `db:"attribs" json:"attribs"`
-	Status  string `db:"status" json:"status"`
+	UUID      string `db:"uuid" json:"uuid"`
+	Email     string `db:"email" json:"email"`
+	Name      string `db:"name" json:"name"`
+	FirstName string `db:"first_name" json:"first_name"`
+	LastName  string `db:"last_name" json:"last_name"`
+	Attribs   string `db:"attribs" json:"attribs"`
+	Status    string `db:"status" json:"status"`
 }
 
 // SubscriberExportProfile represents a subscriber's collated data in JSON for export.

@@ -286,8 +286,10 @@ func (a *App) SubscriptionPrefs(c echo.Context) error {
 	}
 
 	// Manage preferences.
+	// gunmade fork: an empty name is valid. Subscribers may have no name, and
+	// requiring one would block them from saving their preferences.
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" || len(req.Name) > 256 {
+	if len(req.Name) > 256 {
 		return c.Render(http.StatusBadRequest, tplMessage,
 			makeMsgTpl(a.i18n.T("public.errorTitle"), "", a.i18n.T("subscribers.invalidName")))
 	}
@@ -299,7 +301,10 @@ func (a *App) SubscriptionPrefs(c echo.Context) error {
 			makeMsgTpl(a.i18n.T("public.errorTitle"), "", a.i18n.Ts("globals.messages.pFound",
 				"name", a.i18n.T("globals.terms.subscriber"))))
 	}
+	// gunmade fork: the page has a single name input.
 	sub.Name = req.Name
+	sub.FirstName, sub.LastName = "", ""
+	models.ResolveSubscriberNames(&sub, nil)
 
 	// Update the subscriber properties in the DB.
 	if _, err := a.core.UpdateSubscriber(sub.ID, sub); err != nil {
@@ -747,11 +752,10 @@ func (a *App) processSubForm(c echo.Context) (bool, error) {
 	}
 	req.Email = em
 
+	// gunmade fork: a signup without a name stays nameless. This used to store
+	// the e-mail's local part, which greeted people as "Hello jsmith42".
 	req.Name = strings.TrimSpace(req.Name)
-	if len(req.Name) == 0 {
-		// If there's no name, use the name bit from the e-mail.
-		req.Name = strings.Split(req.Email, "@")[0]
-	} else if len(req.Name) > stdInputMaxLen {
+	if len(req.Name) > stdInputMaxLen {
 		return false, echo.NewHTTPError(http.StatusBadRequest, a.i18n.T("subscribers.invalidName"))
 	}
 
@@ -770,11 +774,14 @@ func (a *App) processSubForm(c echo.Context) (bool, error) {
 	}
 
 	// Insert the subscriber into the DB.
-	_, hasOptin, err := a.core.InsertSubscriber(models.Subscriber{
+	newSub := models.Subscriber{
 		Name:   req.Name,
 		Email:  req.Email,
 		Status: models.SubscriberStatusEnabled,
-	}, nil, listUUIDs, false, true)
+	}
+	models.ResolveSubscriberNames(&newSub, nil)
+
+	_, hasOptin, err := a.core.InsertSubscriber(newSub, nil, listUUIDs, false, true)
 	if err == nil {
 		return hasOptin, nil
 	}

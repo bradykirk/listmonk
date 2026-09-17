@@ -193,7 +193,8 @@ func (a *App) ExportSubscribers(c echo.Context) error {
 	hdr.Set(echo.HeaderContentDisposition, "attachment; filename="+"subscribers.csv")
 	hdr.Set("Content-Transfer-Encoding", "binary")
 	hdr.Set("Cache-Control", "no-cache")
-	wr.Write([]string{"uuid", "email", "name", "attributes", "status", "created_at", "updated_at"})
+	// gunmade fork: first_name and last_name follow name, so an export re-imports as-is.
+	wr.Write([]string{"uuid", "email", "name", "first_name", "last_name", "attributes", "status", "created_at", "updated_at"})
 
 loop:
 	// Iterate in batches until there are no more subscribers to export.
@@ -207,7 +208,7 @@ loop:
 		}
 
 		for _, r := range out {
-			if err = wr.Write([]string{r.UUID, r.Email, r.Name, r.Attribs, r.Status,
+			if err = wr.Write([]string{r.UUID, r.Email, r.Name, r.FirstName, r.LastName, r.Attribs, r.Status,
 				r.CreatedAt.Time.String(), r.UpdatedAt.Time.String()}); err != nil {
 				a.log.Printf("error streaming CSV export: %v", err)
 				break loop
@@ -277,6 +278,8 @@ func (a *App) UpdateSubscriber(c echo.Context) error {
 		req.Email = em
 	}
 
+	// gunmade fork: accept first_name/last_name, or split a legacy name.
+	models.ResolveSubscriberNames(&req.Subscriber, nil)
 	if req.Name != "" && !strHasLen(req.Name, 1, stdInputMaxLen) {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.T("subscribers.invalidName"))
 	}
@@ -353,6 +356,9 @@ func (a *App) PatchSubscriber(c echo.Context) error {
 		req.Email = em
 	}
 
+	// gunmade fork: the request was pre-filled from sub, so compare against it
+	// to tell whether the caller sent a legacy name or first/last names.
+	models.ResolveSubscriberNames(&req.Subscriber, &sub)
 	if req.Name != "" && !strHasLen(req.Name, 1, stdInputMaxLen) {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.T("subscribers.invalidName"))
 	}

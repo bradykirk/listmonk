@@ -131,6 +131,8 @@ var (
 	csvHeaders = map[string]bool{
 		"email":      true,
 		"name":       true,
+		"first_name": true, // gunmade fork
+		"last_name":  true, // gunmade fork
 		"attributes": true}
 
 	regexCleanStr = regexp.MustCompile("[[:^ascii:]]")
@@ -558,6 +560,13 @@ func (s *Session) LoadCSV(srcPath string, delim rune) error {
 		if v, ok := row["name"]; ok {
 			sub.Name = v
 		}
+		// gunmade fork: first_name/last_name win over name in ValidateFields.
+		if v, ok := row["first_name"]; ok {
+			sub.FirstName = v
+		}
+		if v, ok := row["last_name"]; ok {
+			sub.LastName = v
+		}
 
 		sub, err = s.im.ValidateFields(sub)
 		if err != nil {
@@ -651,18 +660,10 @@ func (im *Importer) ValidateFields(s SubReq) (SubReq, error) {
 	}
 	s.Email = strings.ToLower(em)
 
-	// If there's no name, use the name part of the e-mail.
-	s.Name = strings.TrimSpace(s.Name)
-	if len(s.Name) == 0 {
-		name := strings.ToLower(strings.Split(s.Email, "@")[0])
-
-		parts := strings.Fields(strings.ReplaceAll(name, ".", " "))
-		for n, p := range parts {
-			parts[n] = cases.Title(language.Und).String(p)
-		}
-
-		s.Name = strings.Join(parts, " ")
-	}
+	// gunmade fork: a subscriber without a name keeps no name. This used to
+	// invent one from the e-mail's local part; models.FallbackName keeps that
+	// rule only so the fork migration can recognise and blank those names.
+	models.ResolveSubscriberNames(&s.Subscriber, nil)
 
 	return s, nil
 }
