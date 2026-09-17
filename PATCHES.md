@@ -26,7 +26,11 @@ as the campaigns themselves, instead of a second tool.
    generated column and `campaigns.preview_text` is added. It deliberately does
    **not** use a `migList` version; see "Subscriber names and preview text" below.
 3. **Put new code in new files.** New files never conflict during a rebase.
-   Only five existing files are touched, by 20 lines in total.
+   That held for the first patch alone (five existing files, 20 lines); it is
+   no longer true of the fork as a whole. The "Subscriber names and preview
+   text" patch alone modifies 24 pre-existing files. See each patch's
+   "Modified file(s)" table for the exact list, the reason, and what to do if
+   a hunk conflicts.
 4. **Keep this file current.** When a hunk conflicts during a rebase, the entry
    below tells you whether the patch is still needed.
 
@@ -466,6 +470,7 @@ New files (no rebase risk): `models/names.go`, `models/names_test.go`,
 | `cmd/subscribers.go`, `cmd/public.go`, `cmd/install.go`, `cmd/campaigns.go` | Name resolution, blank-friendly preferences, export columns, preview text validation and test send | Re-apply. |
 | `static/...`, `docs/docs/content/templating.md` | Greetings tolerate blank first names; preferences name input not `required` | Re-apply. |
 | `frontend/src/views/SubscriberForm.vue`, `Campaign.vue`, `Campaigns.vue`, `i18n/en.json` | First/last inputs; preview text input, payloads, clone | Re-add. |
+| `internal/core/dashboard_growth_db_test.go` | `growthTestDB` extracted into a shared `newTestDB` helper, reused by the two new DB tests above | Fork-owned test file (from the dashboard growth patch); no upstream rebase risk. |
 
 **Before deploying.** Back up `listmonk-data` (the step drops and re-creates a
 column), run `go run ./scripts/fork/namecheck -dsn ...` against a copy of
