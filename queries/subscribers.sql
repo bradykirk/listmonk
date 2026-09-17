@@ -84,9 +84,10 @@ SELECT lists.*,
     ORDER BY subscriber_lists.status;
 
 -- name: insert-subscriber
+-- gunmade fork: $3 is first_name and $9 is last_name. subscribers.name is generated.
 WITH sub AS (
-    INSERT INTO subscribers (uuid, email, name, status, attribs)
-    VALUES($1, $2, $3, $4, $5)
+    INSERT INTO subscribers (uuid, email, first_name, last_name, status, attribs)
+    VALUES($1, $2, $3, $9, $4, $5)
     RETURNING id, status
 ),
 listIDs AS (
@@ -114,12 +115,14 @@ SELECT id from sub;
 -- name: upsert-subscriber
 -- Upserts a subscriber where existing subscribers get their names and attributes overwritten.
 -- If $7 = true, update name/attribs. If $8 = true, update subscription status.
+-- gunmade fork: $3 is first_name and $9 is last_name. subscribers.name is generated.
 WITH sub AS (
-    INSERT INTO subscribers as s (uuid, email, name, attribs, status)
-    VALUES($1, $2, $3, $4, 'enabled')
+    INSERT INTO subscribers as s (uuid, email, first_name, last_name, attribs, status)
+    VALUES($1, $2, $3, $9, $4, 'enabled')
     ON CONFLICT (email)
     DO UPDATE SET
-        name=(CASE WHEN $7 THEN $3 ELSE s.name END),
+        first_name=(CASE WHEN $7 THEN $3 ELSE s.first_name END),
+        last_name=(CASE WHEN $7 THEN $9 ELSE s.last_name END),
         attribs=(CASE WHEN $7 THEN $4 ELSE s.attribs END),
         updated_at=NOW()
     RETURNING uuid, id, status
@@ -139,9 +142,10 @@ SELECT uuid, id from sub;
 -- unlike upsert-subscribers where name and attributes are updated. In addition, all
 -- existing subscriptions are marked as 'unsubscribed'.
 -- This is used in the bulk importer.
+-- gunmade fork: $3 is first_name and $5 is last_name. subscribers.name is generated.
 WITH sub AS (
-    INSERT INTO subscribers (uuid, email, name, attribs, status)
-    VALUES($1, $2, $3, $4, 'blocklisted')
+    INSERT INTO subscribers (uuid, email, first_name, last_name, attribs, status)
+    VALUES($1, $2, $3, $5, $4, 'blocklisted')
     ON CONFLICT (email) DO UPDATE SET status='blocklisted', updated_at=NOW()
     RETURNING id
 )
@@ -149,9 +153,12 @@ UPDATE subscriber_lists SET status='unsubscribed', updated_at=NOW()
     WHERE subscriber_id = (SELECT id FROM sub);
 
 -- name: update-subscriber
+-- gunmade fork: $3 is first_name and $6 is last_name, saved as sent (including
+-- empty, so a name can be cleared). subscribers.name is generated.
 UPDATE subscribers SET
     email=(CASE WHEN $2 != '' THEN $2 ELSE email END),
-    name=(CASE WHEN $3 != '' THEN $3 ELSE name END),
+    first_name=$3,
+    last_name=$6,
     status=(CASE WHEN $4 != '' THEN $4::subscriber_status ELSE status END),
     attribs=(CASE WHEN $5 != '' THEN $5::JSONB ELSE attribs END),
     updated_at=NOW()
@@ -163,7 +170,9 @@ WHERE id = $1;
 WITH s AS (
     UPDATE subscribers SET
         email=(CASE WHEN $2 != '' THEN $2 ELSE email END),
-        name=(CASE WHEN $3 != '' THEN $3 ELSE name END),
+        -- gunmade fork: $3 is first_name and $12 is last_name, saved as sent.
+        first_name=$3,
+        last_name=$12,
         status=(CASE WHEN $4 != '' THEN $4::subscriber_status ELSE status END),
         attribs=(CASE WHEN $5 != '' THEN $5::JSONB ELSE attribs END),
         updated_at=NOW()

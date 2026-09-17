@@ -21,7 +21,11 @@ CREATE TABLE subscribers (
     id              SERIAL PRIMARY KEY,
     uuid uuid       NOT NULL UNIQUE,
     email           TEXT NOT NULL UNIQUE,
-    name            TEXT NOT NULL,
+    -- gunmade fork: first/last names are stored and name is derived. Keep the
+    -- expression identical to internal/migrations/fork_names_preview.go.
+    first_name      TEXT NOT NULL DEFAULT '',
+    last_name       TEXT NOT NULL DEFAULT '',
+    name            TEXT NOT NULL GENERATED ALWAYS AS (btrim(first_name || ' ' || last_name)) STORED,
     attribs         JSONB NOT NULL DEFAULT '{}',
     status          subscriber_status NOT NULL DEFAULT 'enabled',
 
@@ -127,6 +131,9 @@ CREATE TABLE campaigns (
     archive_slug        TEXT NULL UNIQUE,
     archive_template_id INTEGER REFERENCES templates(id) ON DELETE SET NULL,
     archive_meta        JSONB NOT NULL DEFAULT '{}',
+
+    -- gunmade fork: inbox preview text. See models/autopreheader.go.
+    preview_text        TEXT NOT NULL DEFAULT '',
 
     started_at       TIMESTAMP WITH TIME ZONE,
     created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

@@ -63,7 +63,7 @@ INSERT INTO lists (id, uuid, name, type) VALUES
 INSERT INTO campaigns (id, uuid, name, subject, from_email, body, messenger, status)
     VALUES (1, gen_random_uuid(), 'C1', 'S', 'a@b.c', 'b', 'email', 'finished');
 
-INSERT INTO subscribers (id, uuid, email, name, status, created_at, updated_at) VALUES
+INSERT INTO subscribers (id, uuid, email, first_name, status, created_at, updated_at) VALUES
     -- P1  joined 2026-09-01 (before range), active.
     (1,  gen_random_uuid(), 'p1@x.test',  'p1',  'enabled',     '2026-09-01T12:00Z', '2026-09-01T12:00Z'),
     -- P2  joined 2026-10-20, unconfirmed double opt-in still counts, active.
@@ -283,9 +283,17 @@ func checkGrowthInvariants(t *testing.T, out growthOut, r GrowthRange) {
 	}
 }
 
-// growthTestDB creates a throwaway database, installs the schema and fixtures,
-// and prepares every query the way the app does at startup.
 func growthTestDB(t *testing.T, dsn string) *models.Queries {
+	t.Helper()
+
+	_, q := newTestDB(t, dsn, "lm_growth_test", growthFixtures)
+	return q
+}
+
+// newTestDB creates a throwaway database, installs schema.sql and fixtures
+// (which may be empty), and prepares every query in queries/*.sql into
+// models.Queries as the app does at startup.
+func newTestDB(t *testing.T, dsn, prefix, fixtures string) (*sqlx.DB, *models.Queries) {
 	t.Helper()
 
 	admin, err := sqlx.Connect("postgres", dsn)
@@ -294,7 +302,7 @@ func growthTestDB(t *testing.T, dsn string) *models.Queries {
 	}
 	t.Cleanup(func() { admin.Close() })
 
-	name := fmt.Sprintf("lm_growth_test_%d", time.Now().UnixNano())
+	name := fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 	if _, err := admin.Exec("CREATE DATABASE " + name); err != nil {
 		t.Fatalf("create database: %v", err)
 	}
@@ -321,8 +329,10 @@ func growthTestDB(t *testing.T, dsn string) *models.Queries {
 	if _, err := db.Exec(string(schema)); err != nil {
 		t.Fatalf("install schema: %v", err)
 	}
-	if _, err := db.Exec(growthFixtures); err != nil {
-		t.Fatalf("fixtures: %v", err)
+	if fixtures != "" {
+		if _, err := db.Exec(fixtures); err != nil {
+			t.Fatalf("fixtures: %v", err)
+		}
 	}
 
 	files, err := filepath.Glob("../../queries/*.sql")
@@ -362,5 +372,5 @@ func growthTestDB(t *testing.T, dsn string) *models.Queries {
 		t.Fatalf("prepare queries (the app would fail to start): %v", err)
 	}
 
-	return &q
+	return db, &q
 }

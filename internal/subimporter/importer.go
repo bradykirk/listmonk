@@ -307,9 +307,9 @@ func (s *Session) Start() {
 		}
 
 		if s.opt.Mode == ModeSubscribe {
-			_, err = stmt.Exec(uu, sub.Email, sub.Name, sub.Attribs, pq.Array(listIDs), s.opt.SubStatus, s.opt.OverwriteUserInfo, s.opt.OverwriteSubStatus)
+			_, err = stmt.Exec(uu, sub.Email, sub.FirstName, sub.Attribs, pq.Array(listIDs), s.opt.SubStatus, s.opt.OverwriteUserInfo, s.opt.OverwriteSubStatus, sub.LastName)
 		} else if s.opt.Mode == ModeBlocklist {
-			_, err = stmt.Exec(uu, sub.Email, sub.Name, sub.Attribs)
+			_, err = stmt.Exec(uu, sub.Email, sub.FirstName, sub.Attribs, sub.LastName)
 		}
 		if err != nil {
 			s.log.Printf("error executing insert: %v", err)

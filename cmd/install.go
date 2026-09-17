@@ -168,21 +168,23 @@ func installSubs(defListID, optinListID int, q *models.Queries) {
 	if _, err := q.UpsertSubscriber.Exec(
 		uuid.Must(uuid.NewV4()),
 		"john@example.com",
-		"John Doe",
+		"John",
 		`{"type": "known", "good": true, "city": "Bengaluru"}`,
 		pq.Int64Array{int64(defListID)},
 		models.SubscriptionStatusUnconfirmed,
-		true, true); err != nil {
+		true, true,
+		"Doe"); err != nil {
 		lo.Fatalf("Error creating subscriber: %v", err)
 	}
 	if _, err := q.UpsertSubscriber.Exec(
 		uuid.Must(uuid.NewV4()),
 		"anon@example.com",
-		"Anon Doe",
+		"Anon",
 		`{"type": "unknown", "good": true, "city": "Bengaluru"}`,
 		pq.Int64Array{int64(optinListID)},
 		models.SubscriptionStatusUnconfirmed,
-		true, true); err != nil {
+		true, true,
+		"Doe"); err != nil {
 		lo.Fatalf("error creating subscriber: %v", err)
 	}
 }

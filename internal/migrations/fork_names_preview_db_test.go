@@ -206,3 +206,15 @@ func TestRunForkRefusesPartialSchema(t *testing.T) {
 		t.Errorf("ForkPending on a partial schema = %v, %v; want true, nil", pending, err)
 	}
 }
+
+// A fresh install gets the fork columns from schema.sql; the step must no-op.
+func TestForkNoOpOnFreshInstall(t *testing.T) {
+	db := forkTestDB(t)
+
+	if pending, err := ForkPending(db); err != nil || pending {
+		t.Fatalf("ForkPending on schema.sql = %v, %v; want false, nil", pending, err)
+	}
+	if err := RunFork(db, discard); err != nil {
+		t.Fatalf("RunFork on schema.sql: %v", err)
+	}
+}
