@@ -74,6 +74,9 @@ func upgrade(db *sqlx.DB, fs stuffbin.FileSystem, prompt bool, record bool) {
 	// No migrations to run.
 	if len(toRun) == 0 {
 		lo.Printf("no upgrades to run. Database is up to date.")
+
+		// gunmade fork: the fork step must still run. See runForkStep.
+		runForkStep(db)
 		return
 	}
 
@@ -97,7 +100,21 @@ func upgrade(db *sqlx.DB, fs stuffbin.FileSystem, prompt bool, record bool) {
 		}
 	}
 
+	// gunmade fork: after upstream migrations, which expect the pre-fork schema.
+	runForkStep(db)
+
 	lo.Printf("upgrade complete")
+}
+
+// runForkStep applies the gunmade fork schema step (subscriber first/last
+// names, campaign preview text). It is not a migList entry, so it runs on
+// every --upgrade, including when no versioned migration is pending: that is
+// the normal state of a production database. See
+// internal/migrations/fork_names_preview.go.
+func runForkStep(db *sqlx.DB) {
+	if err := migrations.RunFork(db, lo); err != nil {
+		lo.Fatalf("error running gunmade fork migration: %v", err)
+	}
 }
 
 // checkUpgrade checks if the current database schema matches the expected
@@ -106,6 +123,14 @@ func checkUpgrade(db *sqlx.DB) {
 	lastVer, toRun, err := getPendingMigrations(db)
 	if err != nil {
 		lo.Fatalf("error checking migrations: %v", err)
+	}
+
+	// gunmade fork: checked before the early return below, which a database at
+	// the last migList version always takes.
+	if pending, err := migrations.ForkPending(db); err != nil {
+		lo.Fatalf("error checking gunmade fork migration: %v", err)
+	} else if pending {
+		lo.Fatalf("the gunmade fork database upgrade (subscriber first/last names, campaign preview text) is pending. Backup the database and run listmonk --upgrade")
 	}
 
 	// No migrations to run.
