@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/knadh/listmonk/internal/auth"
 	"github.com/knadh/listmonk/internal/notifs"
@@ -579,6 +580,7 @@ func (a *App) TestCampaign(c echo.Context) error {
 	// Override certain values from the DB with incoming values.
 	camp.Name = req.Name
 	camp.Subject = req.Subject
+	camp.PreviewText = req.PreviewText // gunmade fork
 	camp.FromEmail = req.FromEmail
 	camp.Body = req.Body
 	camp.AltBody = req.AltBody
@@ -809,6 +811,12 @@ func (a *App) validateCampaignFields(c campReq) (campReq, error) {
 	// Larger char limit for subject as it can contain {{ go templating }} logic.
 	if !strHasLen(c.Subject, 1, 5000) {
 		return c, errors.New(a.i18n.T("campaigns.fieldInvalidSubject"))
+	}
+
+	// gunmade fork: inbox preview text. See models/autopreheader.go.
+	c.PreviewText = strings.TrimSpace(c.PreviewText)
+	if utf8.RuneCountInString(c.PreviewText) > 500 {
+		return c, errors.New(a.i18n.T("campaigns.fieldInvalidPreviewText"))
 	}
 
 	// If no content-type is specified, default to richtext.

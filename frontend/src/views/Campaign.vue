@@ -77,6 +77,13 @@
                     :placeholder="$t('campaigns.subject')" required />
                 </b-field>
 
+                <!-- gunmade fork: inbox preview text. Ignored for plain text campaigns. -->
+                <b-field v-if="form.content.contentType !== 'plain'" :label="$t('campaigns.previewText')"
+                  label-position="on-border" :message="$t('campaigns.previewTextHelp')">
+                  <b-input :maxlength="500" v-model="form.previewText" name="preview_text" :disabled="!canEdit"
+                    :placeholder="$t('campaigns.previewText')" />
+                </b-field>
+
                 <b-field :label="$t('campaigns.fromAddress')" label-position="on-border">
                   <b-input :maxlength="200" v-model="form.fromEmail" name="from_email" :disabled="!canEdit"
                     :placeholder="$t('campaigns.fromAddressPlaceholder')" required />
@@ -373,6 +380,7 @@ export default Vue.extend({
         archiveSlug: null,
         name: '',
         subject: '',
+        previewText: '',
         fromEmail: '',
         headersStr: '[]',
         headers: [],
@@ -549,6 +557,7 @@ export default Vue.extend({
         id: this.data.id,
         name: this.form.name,
         subject: this.form.subject,
+        preview_text: this.form.previewText,
         lists: this.form.lists.map((l) => l.id),
         from_email: this.form.fromEmail,
         messenger: this.form.messenger,
@@ -574,6 +583,7 @@ export default Vue.extend({
         archiveSlug: this.form.subject,
         name: this.form.name,
         subject: this.form.subject,
+        preview_text: this.form.previewText,
         lists: this.form.lists.map((l) => l.id),
         from_email: this.form.fromEmail,
         content_type: this.form.content.contentType,
@@ -597,6 +607,7 @@ export default Vue.extend({
         archive_slug: this.form.archiveSlug,
         name: this.form.name,
         subject: this.form.subject,
+        preview_text: this.form.previewText,
         lists: this.form.lists.map((l) => l.id),
         from_email: this.form.fromEmail,
         messenger: this.form.messenger,

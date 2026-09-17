@@ -493,6 +493,7 @@ export default Vue.extend({
       const data = {
         name,
         subject: c.subject,
+        preview_text: c.previewText,
         lists: c.lists.map((l) => l.id),
         type: c.type,
         from_email: c.fromEmail,
