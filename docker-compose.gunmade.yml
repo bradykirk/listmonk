@@ -51,6 +51,7 @@ services:
       LISTMONK_db__max_idle: 25
       LISTMONK_db__max_lifetime: 300s
       TZ: Etc/UTC
+      LISTMONK_EMAIL_DEFAULT: ${LISTMONK_EMAIL_DEFAULT:-}     # gunmade fork: pin the default `email` messenger to one named SMTP server (e.g. `ri`). Empty = upstream pool. See PATCHES.md.
       LISTMONK_ADMIN_USER: ${LISTMONK_ADMIN_USER:-}           # If these (optional) are set during the first `docker compose up`, then the Super Admin user is automatically created.
       LISTMONK_ADMIN_PASSWORD: ${LISTMONK_ADMIN_PASSWORD:-}   # Otherwise, the user can be setup on the web app after the first visit to http://localhost:9000
     volumes:

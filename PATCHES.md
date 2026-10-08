@@ -543,3 +543,51 @@ as well.
 LISTMONK_TEST_DSN='postgres://lmtest@127.0.0.1:55432/lmtest?sslmode=disable' go test ./...
 scripts/fork/upgrade-e2e.sh
 ```
+
+## Named SMTP messengers and a pinned default (Oct 2026)
+
+**Why.** One instance (RangeInsiders) will carry mail for several businesses,
+each with its own SMTP server (its own SES account and From domain). Upstream
+has two problems for that:
+
+1. With exactly **one** enabled SMTP server, `initSMTPMessengers` registers only
+   the pooled `email` messenger and drops the named one, so a campaign cannot
+   select `email-<name>` until a second server exists.
+2. The default `email` messenger (system mail, `/api/tx`, any campaign that
+   picks `email`) round-robins across **every** enabled server. Adding a second
+   business's server would send the first business's mail through it.
+
+**What it does.**
+
+- Every named server is always registered as its own messenger, also when it
+  is the only one.
+- `LISTMONK_EMAIL_DEFAULT` (env; `ri` or `email-ri`, normalized the same way the
+  settings handler stores names) pins `email` to that one server, chosen by
+  name, never by order.
+- If that server is missing or disabled, `email` has **no** servers. Every send
+  on it returns `email.ErrNoServers` and startup logs
+  `ERROR: LISTMONK_EMAIL_DEFAULT: ...`. It never falls back to another server.
+  (Upstream would panic on `rand.Intn(0)` with an empty pool; the guard in
+  `Push` turns that into an error.)
+- Env unset: `email` pools every enabled server, exactly as upstream. Only
+  change 1 applies (an extra standalone messenger for a lone named server).
+
+**Deploy order (RangeInsiders).** Deploy with the env unset → rename the RI SMTP
+server to `ri` in Settings (saves as `email-ri`) → confirm `email-ri` is listed
+as a campaign messenger → set `LISTMONK_EMAIL_DEFAULT=ri` on the Coolify app and
+redeploy → confirm the startup log has no `LISTMONK_EMAIL_DEFAULT` error and a
+test transactional send works. Setting the env before the server is named makes
+all system mail fail.
+
+| New file | Purpose |
+| --- | --- |
+| `internal/messenger/email/gunmade.go` | `NewMessengers`, `NormalizeName`, `ErrNoServers`, `ServerNames`. |
+| `internal/messenger/email/gunmade_test.go` | One named server; two servers with env unset (upstream pool); env resolves to one server regardless of order; pinned server disabled → empty `email`, `Push` returns `ErrNoServers`; unnamed servers; name normalization. |
+
+| Modified file | Change | If it conflicts |
+| --- | --- | --- |
+| `cmd/init.go` | `initSMTPMessengers` collects enabled servers, then calls `email.NewMessengers(servers, os.Getenv("LISTMONK_EMAIL_DEFAULT"))`. | Keep upstream's config loop; replace everything after it with the call. If upstream fixes the one-server case itself, keep only the env pin. |
+| `internal/messenger/email/email.go` | `Push`: `if len(pool) == 0 { return ErrNoServers }` before `rand.Intn`. | Re-add the 3-line guard. |
+| `docker-compose.gunmade.yml` | `LISTMONK_EMAIL_DEFAULT: ${LISTMONK_EMAIL_DEFAULT:-}` | Re-add. |
+
+**Tests.** `go test ./internal/messenger/email/` (no database needed).

@@ -138,6 +138,9 @@ func (e *Emailer) Push(m models.Message) error {
 			pool = srvs
 		}
 	}
+	if len(pool) == 0 {
+		return ErrNoServers
+	}
 	srv := pool[rand.Intn(len(pool))]
 
 	// Are there attachments?

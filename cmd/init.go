@@ -668,7 +668,6 @@ func initImporter(q *models.Queries, db *sqlx.DB, core *core.Core, i *i18n.I18n,
 func initSMTPMessengers() []manager.Messenger {
 	var (
 		servers = []email.Server{}
-		out     = []manager.Messenger{}
 	)
 
 	// Load the config for multiple SMTP servers.
@@ -685,31 +684,23 @@ func initSMTPMessengers() []manager.Messenger {
 
 		servers = append(servers, s)
 		lo.Printf("initialized email (SMTP) messenger: %s@%s", item.String("username"), item.String("host"))
-
-		// If the server has a name, initialize it as a standalone e-mail messenger
-		// allowing campaigns to select individual SMTPs. In the UI and config, it'll appear as `email / $name`.
-		if s.Name != "" {
-			msgr, err := email.New(s.Name, s)
-			if err != nil {
-				lo.Fatalf("error initializing e-mail messenger: %v", err)
-			}
-			out = append(out, msgr)
-		}
 	}
 
-	// Initialize the 'email' messenger with all SMTP servers.
-	msgr, err := email.New(email.MessengerName, servers...)
+	// gunmade fork: named servers are always standalone messengers, and
+	// LISTMONK_EMAIL_DEFAULT pins the default `email` messenger to one named
+	// server, with no fallback. See internal/messenger/email/gunmade.go.
+	msgrs, warning, err := email.NewMessengers(servers, os.Getenv("LISTMONK_EMAIL_DEFAULT"))
 	if err != nil {
-		lo.Fatalf("error initializing e-mail messenger: %v", err)
+		lo.Fatalf("%v", err)
+	}
+	if warning != "" {
+		lo.Printf("ERROR: LISTMONK_EMAIL_DEFAULT: %s", warning)
 	}
 
-	// If it's just one server, return the default "email" messenger.
-	if len(servers) == 1 {
-		return []manager.Messenger{msgr}
+	out := make([]manager.Messenger, 0, len(msgrs))
+	for _, m := range msgrs {
+		out = append(out, m)
 	}
-
-	// If there are multiple servers, prepend the group "email" to be the first one.
-	out = append([]manager.Messenger{msgr}, out...)
 
 	return out
 }
