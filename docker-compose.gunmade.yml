@@ -80,9 +80,16 @@ services:
       - type: volume
         source: listmonk-data
         target: /var/lib/postgresql/data
+      # Nightly pg_dump output, written by a Coolify scheduled task and shipped
+      # to R2 by a Coolify storage backup. Backing up listmonk-data directly
+      # would copy live Postgres files, which is not a restorable snapshot.
+      - type: volume
+        source: listmonk-dumps
+        target: /backups
 
 # These volume names must not change. They hold the subscriber database and the
 # uploaded media; renaming either one silently starts from empty.
 volumes:
   listmonk-data:
   listmonk-uploads:
+  listmonk-dumps:
