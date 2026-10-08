@@ -79,6 +79,62 @@ the fork's `/api/analytics/*` endpoints return data.
 the deployment already runs and changes no schema, so the upgrade is a container
 swap. Take a database backup first regardless.
 
+## Backups (Oct 2026)
+
+Off-site copies go to the private R2 bucket `gunmade-listmonk-backups` in the
+gunmade.com Cloudflare account. A 30-day bucket lock rule means no object there
+can be deleted or overwritten for 30 days, by anyone, including a leaked token.
+
+| What | How | When (UTC) | Kept |
+| ---- | --- | ---------- | ---- |
+| Database | Coolify scheduled task on `db` runs `pg_dump -Fc` into the `listmonk-dumps` volume (`/backups`) | 03:00 | last 7 dumps in the volume |
+| Dumps → R2 | Coolify storage backup of `listmonk-dumps` | 03:30 | 7 on the server, 35 in R2 |
+| Email images | Live in R2 bucket `plunk-uploads` (Settings → Media is `s3`), under an Indefinite bucket lock rule | — | forever |
+
+The `listmonk-uploads` volume is empty because media lives in R2, so its
+storage backup only produces an empty archive.
+
+**`listmonk-data` is deliberately not backed up as a volume.** Copying live
+Postgres files is not a restorable snapshot; the `pg_dump` archive is. That is
+why `listmonk-dumps` exists in `docker-compose.gunmade.yml`.
+
+R2 retention is 35, not 7: with 7, Coolify would try to delete archives the
+30-day lock still protects, and every nightly cleanup would fail.
+
+Failures email the Coolify team address via SES SMTP (IAM user
+`coolify-alerts-smtp`); "backup failure" and "scheduled task failure" are on,
+success notices are off.
+
+The scheduled task command (Coolify stores commands in a `varchar(255)`, so it
+must stay at or under 255 characters; this one is 252):
+
+```sh
+set -eu;cd /backups;rm -f *.tmp;f=listmonk-$(date -u +%Y%m%dT%H%M%SZ).dump;trap "rm -f $f.tmp" EXIT;pg_dump -U $POSTGRES_USER -Fc -f $f.tmp $POSTGRES_DB;pg_restore -l $f.tmp >/dev/null;mv $f.tmp $f;find . -name "listmonk-*.dump" -mtime +6 -delete;ls -l
+```
+
+The dump is written to `.tmp` and validated with `pg_restore -l` before it gets
+its final name, so a backup never ships a half-written dump. Old dumps are only
+pruned after a new one succeeds, so repeated failures never delete the last good
+ones.
+
+### Restoring
+
+1. Download the newest archive (Coolify → Backups → `listmonk-dumps` →
+   Executions → Download, or straight from R2). It is a `.tar.gz` holding up to
+   seven `listmonk-<timestamp>.dump` files; take the newest.
+2. Restore into an empty database:
+
+   ```sh
+   pg_restore -U listmonk -d listmonk --no-owner listmonk-<timestamp>.dump
+   ```
+
+3. Check `select count(*) from subscribers` against the count in the admin
+   header (Subscribers (N)).
+
+Verified on 2026-10-08: the 02:44 UTC dump restored into `postgres:17-alpine`
+with no errors, 23,744 subscribers (matching production exactly), 14 lists,
+35,060 list memberships, 17 campaigns, 8 templates, 261 media records.
+
 ## Upgrading to a new listmonk release
 
 ```sh
