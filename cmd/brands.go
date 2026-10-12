@@ -146,12 +146,12 @@ func (a *App) campaignRefsInBrand(c echo.Context, o campReq) error {
 	return nil
 }
 
-// defaultTemplateInBrand validates, in a brand view, the template that
-// create-campaign picks when the request has no template_id. Visual campaigns
-// never use the default template. No-op for All brands.
+// defaultTemplateInBrand validates, in a brand view, the default template that a
+// campaign with no template (template_id absent, null or 0) uses. Visual campaigns
+// never use it. No-op for All brands.
 func (a *App) defaultTemplateInBrand(c echo.Context, o campReq) error {
 	b, _, ok := brands.BrandFrom(c)
-	if !ok || o.TemplateID.Valid || o.ContentType == models.CampaignContentTypeVisual {
+	if !ok || (o.TemplateID.Valid && o.TemplateID.Int != 0) || o.ContentType == models.CampaignContentTypeVisual {
 		return nil
 	}
 	id, err := a.brands.Store.DefaultTemplateID()

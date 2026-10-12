@@ -384,6 +384,12 @@ else
   lim PUT "/api/lists/$R1" "$LIST_PUT";                            expect "limited, no header: PUT r1 -> 403" 403
   lim GET "/api/lists/$T1";                                        expect "limited, no header: GET t1 -> 403" 403
   BRAND=ri lim GET "/api/lists/$R1";                               expect "limited, ri header: GET r1 -> 200 (header grants nothing, takes nothing)" 200
+  BRAND=ri lim GET "/api/subscribers/$S";                          expect "limited, ri view: GET subscriber -> 200" 200
+  jq_ok "limited, ri view: only ri lists, r1 named, r2 (no right) masked as restricted" \
+    '([.data.lists[].id] | sort) == ([$r1,$r2] | sort)
+     and ([.data.lists[] | select(.id == $r1) | .name != "*Unknown"] == [true])
+     and ([.data.lists[] | select(.id == $r2) | .name == "*Unknown" and .restricted == true] == [true])' \
+    --argjson r1 "$R1" --argjson r2 "$R2"
 
   # A user with subscribers:manage but only read rights on r1, sending lists [] in
   # each view. The route allows it, so the handler decides; nothing may change.
@@ -596,7 +602,27 @@ admin DELETE "/api/campaigns/$(jget .data.id)"
 admin POST /api/campaigns "$(camp_json "nt-all-$RUN" "[$T1]" "$FROM_TA" | jq -c 'del(.template_id)')"
 expect "all brands: POST campaign without template_id, ri-owned default -> 200" 200
 admin DELETE "/api/campaigns/$(jget .data.id)"
+BRAND=ta req POST /api/campaigns "$(printf '%s' "$CJ_NT" | jq -c '.template_id = 0')"
+expect_msg "ta: POST campaign with template_id 0, default is ri-owned -> 400" 400 "default template does not belong"
+# A TA campaign with a NULL template falls back to the ri-owned default at send time (rule 4).
+# Explicit template_id 0 is stored as NULL (an omitted id stores the default's id).
+admin POST /api/campaigns "$(printf '%s' "$CJ_NT" | jq -c '.template_id = 0')"
+CNULL=$(jget .data.id)
+admin GET "/api/campaigns/$CNULL"
+jq_ok "admin-created campaign has a NULL template" '.data.template_id == null'
+SOON=$(date -u -v+1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)
+admin PUT "/api/campaigns/$CNULL" "$(printf '%s' "$CJ_NT" | jq -c --arg s "$SOON" '.send_at = $s')"
+admin PUT "/api/campaigns/$CNULL/status" '{"status":"scheduled"}'
+expect_msg "NULL template + ri-owned default: schedule -> 400 template message" 400 "template belongs to another brand"
+admin PUT "/api/campaigns/$CNULL/status" '{"status":"running"}'
+expect_msg "NULL template + ri-owned default: start -> 400 template message" 400 "template belongs to another brand"
+BRAND=ta req PUT "/api/campaigns/$CNULL" "$(printf '%s' "$CJ_NT" | jq -c '.template_id = 0')"
+expect_msg "ta: PUT campaign with template_id 0, default is ri-owned -> 400" 400 "default template does not belong"
 admin PUT "/api/ext/templates/$TD/brand" '{"brand":null}'
+admin PUT "/api/campaigns/$CNULL/status" '{"status":"scheduled"}'
+expect "NULL template + shared default: schedule -> 200" 200
+admin PUT "/api/campaigns/$CNULL/status" '{"status":"cancelled"}'
+admin DELETE "/api/campaigns/$CNULL"
 BRAND=ta req POST /api/campaigns "$CJ_NT"
 expect "ta: POST campaign without template_id, default now shared -> 200" 200
 admin DELETE "/api/campaigns/$(jget .data.id)"

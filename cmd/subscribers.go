@@ -911,11 +911,10 @@ func maskRestrictedSubLists(user auth.User, sub *models.Subscriber) {
 // scopeSubLists prepares a subscriber's lists for a response.
 // FORK(hcm): in a brand view it drops every subscription outside the brand, so
 // the admin form never holds or resubmits another brand's lists (spec 5.4).
-// With All brands it is the upstream maskRestrictedSubLists.
+// Both views then apply the upstream maskRestrictedSubLists.
 func scopeSubLists(c echo.Context, user auth.User, sub *models.Subscriber) {
 	if _, ids, ok := brands.BrandFrom(c); ok {
 		sub.Lists = brands.FilterSubscriberLists(sub.Lists, ids)
-		return
 	}
 	maskRestrictedSubLists(user, sub)
 }

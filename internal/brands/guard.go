@@ -77,3 +77,21 @@ func containsStr(xs []string, s string) bool {
 	}
 	return false
 }
+
+// TemplateRef names the template a campaign uses at send time. ID 0 means the
+// campaign has no template_id, so the manager falls back to the current default
+// template. Visual campaigns carry their own body and skip rule 4.
+type TemplateRef struct {
+	ID     int
+	Visual bool
+}
+
+// CheckTemplate is send guard rule 4. ownerSlug is the brand that owns the
+// effective template: empty for shared or unassigned templates. It blocks only
+// a template owned by another brand.
+func CheckTemplate(slug, ownerSlug string) error {
+	if ownerSlug != "" && ownerSlug != slug {
+		return errors.New("The campaign template belongs to another brand.")
+	}
+	return nil
+}

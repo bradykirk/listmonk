@@ -355,6 +355,11 @@ func (a *App) UpdateCampaign(c echo.Context) error {
 		return err
 	}
 
+	// FORK(hcm): a NULL or 0 template falls back to the default template at send time.
+	if err := a.defaultTemplateInBrand(c, o); err != nil {
+		return err
+	}
+
 	// Filter lists against the current user's permitted lists.
 	user := auth.GetUser(c)
 	o.ListIDs = user.FilterListsByPerm(auth.PermTypeGet|auth.PermTypeManage, o.ListIDs)
@@ -400,7 +405,7 @@ func (a *App) UpdateCampaignStatus(c echo.Context) error {
 		if err != nil {
 			return err
 		}
-		if err := a.brands.GuardCampaign(listIDs, camp.Messenger, camp.FromEmail); err != nil {
+		if err := a.brands.GuardCampaign(listIDs, camp.Messenger, camp.FromEmail, brands.TemplateRef{ID: int(camp.TemplateID.Int), Visual: camp.ContentType == models.CampaignContentTypeVisual}); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}
@@ -652,7 +657,7 @@ func (a *App) TestCampaign(c echo.Context) error {
 		if err := a.queries.ExtCampaignListIDs.Select(&listIDs, id); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "error loading campaign lists")
 		}
-		if err := a.brands.GuardSender(listIDs, camp.Messenger, camp.FromEmail); err != nil {
+		if err := a.brands.GuardSender(listIDs, camp.Messenger, camp.FromEmail, brands.TemplateRef{ID: int(camp.TemplateID.Int), Visual: camp.ContentType == models.CampaignContentTypeVisual}); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}

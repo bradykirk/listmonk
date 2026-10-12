@@ -21,8 +21,8 @@ func (s *Service) loadAll() ([]Brand, map[int][]string, error) {
 }
 
 // GuardCampaign applies all send guard rules to a campaign about to send.
-func (s *Service) GuardCampaign(listIDs []int, messenger, fromEmail string) error {
-	ruleErr, err := s.guardCampaign(listIDs, messenger, fromEmail)
+func (s *Service) GuardCampaign(listIDs []int, messenger, fromEmail string, tpl TemplateRef) error {
+	ruleErr, err := s.guardCampaign(listIDs, messenger, fromEmail, tpl)
 	if err != nil {
 		return err
 	}
@@ -30,17 +30,41 @@ func (s *Service) GuardCampaign(listIDs []int, messenger, fromEmail string) erro
 }
 
 // guardCampaign separates a rule failure (ruleErr) from a lookup error (err).
-func (s *Service) guardCampaign(listIDs []int, messenger, fromEmail string) (ruleErr, err error) {
+func (s *Service) guardCampaign(listIDs []int, messenger, fromEmail string, tpl TemplateRef) (ruleErr, err error) {
 	b, t, err := s.loadAll()
 	if err != nil {
 		return nil, err
 	}
-	return Check(GuardInput{ListIDs: listIDs, Messenger: messenger, FromEmail: fromEmail}, t, b), nil
+	if ruleErr := Check(GuardInput{ListIDs: listIDs, Messenger: messenger, FromEmail: fromEmail}, t, b); ruleErr != nil {
+		return ruleErr, nil
+	}
+	return s.guardTemplate(listIDs, tpl, t, b)
 }
 
-// GuardSender applies the messenger and from-address rules (2-3) for the
+// guardTemplate is rule 4. The lists already passed rule 1, so they have one brand.
+func (s *Service) guardTemplate(listIDs []int, tpl TemplateRef, t map[int][]string, b []Brand) (ruleErr, err error) {
+	if tpl.Visual {
+		return nil, nil
+	}
+	slug, _ := CampaignBrand(listIDs, t, b)
+	if slug == "" {
+		return nil, nil
+	}
+	var owner string
+	if s.tplOwner != nil {
+		owner, err = s.tplOwner(tpl.ID)
+	} else {
+		owner, err = s.Store.EffectiveTemplateOwner(tpl.ID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return CheckTemplate(slug, owner), nil
+}
+
+// GuardSender applies the messenger, from-address and template rules (2-4) for the
 // campaign's brand. A campaign with no single brand returns the rule-1 error.
-func (s *Service) GuardSender(listIDs []int, messenger, fromEmail string) error {
+func (s *Service) GuardSender(listIDs []int, messenger, fromEmail string, tpl TemplateRef) error {
 	b, t, err := s.loadAll()
 	if err != nil {
 		return err
@@ -49,7 +73,14 @@ func (s *Service) GuardSender(listIDs []int, messenger, fromEmail string) error 
 	if slug == "" {
 		return errors.New(reason)
 	}
-	return CheckSender(slug, messenger, fromEmail, b)
+	if err := CheckSender(slug, messenger, fromEmail, b); err != nil {
+		return err
+	}
+	ruleErr, err := s.guardTemplate(listIDs, tpl, t, b)
+	if err != nil {
+		return err
+	}
+	return ruleErr
 }
 
 type guardedStore struct {
@@ -84,7 +115,7 @@ func (g *guardedStore) NextCampaigns(cur, sent []int64) ([]*models.Campaign, err
 		var ruleErr error
 		ids, err := g.lists(c.ID)
 		if err == nil {
-			ruleErr, err = g.svc.guardCampaign(ids, c.Messenger, c.FromEmail)
+			ruleErr, err = g.svc.guardCampaign(ids, c.Messenger, c.FromEmail, TemplateRef{ID: int(c.TemplateID.Int), Visual: c.ContentType == models.CampaignContentTypeVisual})
 		}
 		if err != nil || ruleErr != nil {
 			// A lookup error fails closed like a rule failure, but is logged apart.

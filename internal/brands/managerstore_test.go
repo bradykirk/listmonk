@@ -25,7 +25,8 @@ func (f *fakeStore) UpdateCampaignStatus(id int, s string) error {
 }
 
 func staticService(b []Brand, tags map[int][]string) *Service {
-	return &Service{load: func() ([]Brand, map[int][]string, error) { return b, tags, nil }}
+	return &Service{load: func() ([]Brand, map[int][]string, error) { return b, tags, nil },
+		tplOwner: func(int) (string, error) { return "", nil }}
 }
 
 func TestManagerGuardPausesNewBadCampaign(t *testing.T) {
@@ -55,18 +56,18 @@ func TestManagerGuardPausesNewBadCampaign(t *testing.T) {
 
 func TestGuardSender(t *testing.T) {
 	svc := staticService(guardBrands(), guardTags)
-	if err := svc.GuardSender([]int{3}, "email-ri", "RI <a@rangeinsiders.com>"); err != nil {
+	if err := svc.GuardSender([]int{3}, "email-ri", "RI <a@rangeinsiders.com>", TemplateRef{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.GuardSender([]int{3}, "email-ta", "a@rangeinsiders.com"); err == nil {
+	if err := svc.GuardSender([]int{3}, "email-ta", "a@rangeinsiders.com", TemplateRef{}); err == nil {
 		t.Fatal("wrong messenger accepted")
 	}
 	// Mixed brands: no single brand, so the rule-1 error.
-	err := svc.GuardSender([]int{3, 17}, "email-ri", "a@rangeinsiders.com")
+	err := svc.GuardSender([]int{3, 17}, "email-ri", "a@rangeinsiders.com", TemplateRef{})
 	if err == nil || strings.TrimSpace(err.Error()) == "" {
 		t.Fatal("mixed-brand lists accepted")
 	}
-	if err := svc.GuardCampaign([]int{3, 17}, "email-ri", "a@rangeinsiders.com"); err == nil {
+	if err := svc.GuardCampaign([]int{3, 17}, "email-ri", "a@rangeinsiders.com", TemplateRef{}); err == nil {
 		t.Fatal("mixed-brand campaign accepted")
 	}
 }
@@ -152,4 +153,79 @@ func TestManagerGuardLookupErrorHasOwnLogPrefix(t *testing.T) {
 	if !strings.Contains(buf.String(), "send guard paused") {
 		t.Fatalf("log: %q", buf.String())
 	}
+}
+
+func TestCheckTemplate(t *testing.T) {
+	for _, c := range []struct {
+		slug, owner string
+		blocked     bool
+	}{{"ta", "ri", true}, {"ta", "ta", false}, {"ta", "", false}} {
+		if err := CheckTemplate(c.slug, c.owner); (err != nil) != c.blocked {
+			t.Errorf("%+v: %v", c, err)
+		}
+	}
+}
+
+func TestGuardTemplateRule(t *testing.T) {
+	svc := staticService(guardBrands(), guardTags)
+	owner := "ri"
+	svc.tplOwner = func(int) (string, error) { return owner, nil }
+	ta := func(tpl TemplateRef) error {
+		return svc.GuardCampaign([]int{17}, "email-ta", "a@news.tacticaladvisor.net", tpl)
+	}
+	if err := ta(TemplateRef{}); err == nil || err.Error() != "The campaign template belongs to another brand." {
+		t.Fatalf("ri-owned template on ta campaign: %v", err)
+	}
+	if err := ta(TemplateRef{Visual: true}); err != nil {
+		t.Fatalf("visual must skip rule 4: %v", err)
+	}
+	if err := svc.GuardSender([]int{17}, "email-ta", "a@news.tacticaladvisor.net", TemplateRef{}); err == nil {
+		t.Fatal("GuardSender must apply rule 4")
+	}
+	owner = ""
+	if err := ta(TemplateRef{}); err != nil {
+		t.Fatalf("shared or unassigned: %v", err)
+	}
+	owner = "ta"
+	if err := ta(TemplateRef{}); err != nil {
+		t.Fatalf("own template: %v", err)
+	}
+}
+
+func TestEffectiveTemplateOwner(t *testing.T) {
+	db := testDB(t)
+	if err := Bootstrap(db); err != nil {
+		t.Fatal(err)
+	}
+	s := NewStore(db)
+	mk := func(name string, def bool) int {
+		var id int
+		if err := db.Get(&id, `INSERT INTO templates (name, type, subject, body, is_default) VALUES ($1, 'campaign', '', 'x', $2) RETURNING id`, name, def); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	db.MustExec(`UPDATE templates SET is_default = FALSE`)
+	d := mk("d", true)
+	own := mk("o", false)
+	ri := "ri"
+	if err := s.Upsert(Brand{Slug: "ri", Name: "RI", ListTags: []string{"ri"}, Messengers: []string{}, FromDomains: []string{}}); err != nil {
+		t.Fatal(err)
+	}
+	want := func(id int, w string) {
+		t.Helper()
+		if got, err := s.EffectiveTemplateOwner(id); err != nil || got != w {
+			t.Fatalf("id %d: %q %v want %q", id, got, err, w)
+		}
+	}
+	want(0, "") // default, unassigned
+	if err := s.SetTemplateBrand(d, &ri); err != nil {
+		t.Fatal(err)
+	}
+	want(0, "ri") // default owned by ri
+	want(own, "") // explicit id ignores the default
+	if err := s.SetTemplateBrand(d, nil); err != nil {
+		t.Fatal(err)
+	}
+	want(0, "") // shared default
 }

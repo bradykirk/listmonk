@@ -8,9 +8,10 @@
 --   template  the owner that the seed gives each template. Templates 1-4 must be the
 --             upstream defaults (shared), 5-6 must be RI's.
 --
--- The campaign rows apply all three send guard rules (spec 6.1): lists of one brand,
+-- The campaign rows apply all four send guard rules (spec 6.1): lists of one brand,
 -- messenger in the brand's messengers, from domain equal to or a subdomain of one of
--- the brand's from domains (empty from_domains blocks). A from address that
+-- the brand's from domains (empty from_domains blocks), and the effective template
+-- (template_id, or the default template when NULL) is not owned by another brand. A from address that
 -- net/mail.ParseAddress would reject shows as BLOCK: from address unparsed.
 -- No running or scheduled campaign may show any BLOCK. Fix a BLOCK row before the
 -- deploy, or the manager guard pauses that campaign.
@@ -25,7 +26,9 @@ WITH b(slug, list_tags, messengers, from_domains) AS (VALUES
 lb AS (
   SELECT l.id, l.name, ARRAY(SELECT b.slug FROM b WHERE l.tags::text[] && b.list_tags) AS brands FROM lists l),
 cb AS (
-  SELECT c.id, c.name, c.messenger, c.from_email,
+  SELECT c.id, c.name, c.messenger, c.from_email, c.content_type,
+    -- Effective template (rule 4): template_id, or the current default when it is NULL.
+    COALESCE(c.template_id, (SELECT t.id FROM templates t WHERE t.is_default LIMIT 1)) AS tid,
     (SELECT lb.brands[1] FROM campaign_lists cl JOIN lb ON lb.id = cl.list_id WHERE cl.campaign_id = c.id LIMIT 1) AS brand,
     -- Domain of the parsed address: strip the display name, take the text after the last @.
     lower(substring(btrim(regexp_replace(c.from_email, '^.*<|>.*$', '', 'g')) from '[^@]*$')) AS dom
@@ -50,6 +53,9 @@ SELECT 'campaign', cb.id, cb.name,
     WHEN NOT EXISTS (SELECT 1 FROM b, unnest(b.from_domains) AS d
                      WHERE b.slug = cb.brand AND d <> ''
                        AND (cb.dom = lower(d) OR right(cb.dom, length(d) + 1) = '.' || lower(d))) THEN 'BLOCK: from domain'
+    -- Rule 4: block only a template owned by another brand. The seed owns templates 5 and 6
+    -- by ri; every other template is shared or unassigned. Visual campaigns are skipped.
+    WHEN cb.content_type <> 'visual' AND cb.tid IN (5, 6) AND cb.brand <> 'ri' THEN 'BLOCK: template'
     ELSE 'brand ' || cb.brand || ' messenger ' || cb.messenger || ' from ' || cb.from_email
   END
 FROM cb

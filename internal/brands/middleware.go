@@ -29,6 +29,8 @@ type Service struct {
 	// load returns the brands and list tags for the send guard. Tests set it;
 	// when nil, the guard reads them from Store.
 	load func() ([]Brand, map[int][]string, error)
+	// tplOwner replaces Store.EffectiveTemplateOwner in tests.
+	tplOwner func(templateID int) (string, error)
 }
 
 // Middleware reads the selected brand, classifies the route, and for Scoped

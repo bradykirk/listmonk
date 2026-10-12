@@ -192,6 +192,20 @@ func (s *Store) DefaultTemplateID() (int, error) {
 	return id, err
 }
 
+// EffectiveTemplateOwner returns the owning brand slug of a campaign's
+// effective template (templateID, or the default template when templateID is 0).
+// It is empty for a shared or unassigned template or when none exists.
+func (s *Store) EffectiveTemplateOwner(templateID int) (string, error) {
+	var owners []string
+	err := s.db.Select(&owners, `SELECT COALESCE(tb.brand_slug, '') FROM ext.template_brands tb
+		WHERE tb.template_id = CASE WHEN $1 > 0 THEN $1
+			ELSE (SELECT id FROM templates WHERE is_default = TRUE LIMIT 1) END`, templateID)
+	if err != nil || len(owners) == 0 {
+		return "", err
+	}
+	return owners[0], nil
+}
+
 // MediaVisible is TemplateVisible for media.
 func (s *Store) MediaVisible(id int, slug string) (bool, error) {
 	var ok bool
