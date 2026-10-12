@@ -92,6 +92,8 @@ WHERE ($1 = 0 OR id = $1)
             WHERE x.campaign_id = c.id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($9::INT[])))
         )
     ))
+    -- FORK(hcm): automation step campaigns are hidden from lists (not from a lookup by id).
+    AND ($1 <> 0 OR NOT EXISTS (SELECT 1 FROM ext.automation_steps s WHERE s.campaign_id = c.id))
 ORDER BY %order% OFFSET $7 LIMIT (CASE WHEN $8 < 1 THEN NULL ELSE $8 END);
 
 -- name: get-campaign
@@ -617,7 +619,9 @@ AND ($5::INT[] IS NULL OR (
         SELECT 1 FROM campaign_lists x
         WHERE x.campaign_id = c.id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($5::INT[])))
     )
-));
+))
+-- FORK(hcm): automation step campaigns are never bulk-deleted.
+AND NOT EXISTS (SELECT 1 FROM ext.automation_steps s WHERE s.campaign_id = c.id);
 
 -- name: register-campaign-view
 WITH view AS (

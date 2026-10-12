@@ -384,6 +384,11 @@ func (a *App) UpdateCampaign(c echo.Context) error {
 		o = c
 	}
 
+	// FORK(hcm): an automation step campaign keeps its list and is checked like a send.
+	if err := a.stepCampaignGuard(c, id, &o); err != nil {
+		return err
+	}
+
 	out, err := a.core.UpdateCampaign(id, o.Campaign, o.ListIDs, o.MediaIDs)
 	if err != nil {
 		return err
@@ -396,6 +401,13 @@ func (a *App) UpdateCampaign(c echo.Context) error {
 func (a *App) UpdateCampaignStatus(c echo.Context) error {
 	// Get the campaign ID.
 	id := getID(c)
+
+	// FORK(hcm): automation step campaigns change only on the Automations page.
+	if _, ok, err := a.automations.StepOwner(id); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "error checking automation step")
+	} else if ok {
+		return echo.NewHTTPError(http.StatusBadRequest, msgAutomationEmail)
+	}
 
 	// Check if the user has access to the campaign.
 	if err := a.checkCampaignPerm(auth.PermTypeManage, id, c); err != nil {
@@ -478,6 +490,13 @@ func (a *App) DeleteCampaign(c echo.Context) error {
 	// Get the campaign ID.
 	id := getID(c)
 
+	// FORK(hcm): automation step campaigns change only on the Automations page.
+	if _, ok, err := a.automations.StepOwner(id); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "error checking automation step")
+	} else if ok {
+		return echo.NewHTTPError(http.StatusBadRequest, msgAutomationEmail)
+	}
+
 	// Check if the user has access to the campaign.
 	if err := a.checkCampaignPerm(auth.PermTypeManage, id, c); err != nil {
 		return err
@@ -531,6 +550,31 @@ func (a *App) DeleteCampaigns(c echo.Context) error {
 	if len(ids) == 0 && (query == "" && !all) {
 		return echo.NewHTTPError(http.StatusBadRequest,
 			a.i18n.Ts("globals.messages.errorInvalidIDs", "error", "id or query required"))
+	}
+
+	// FORK(hcm): drop automation step campaigns from an id list. The query path is
+	// protected in SQL.
+	if len(ids) > 0 {
+		var steps []int
+		if err := a.db.Select(&steps, `SELECT campaign_id FROM ext.automation_steps WHERE campaign_id = ANY($1)`, pq.Array(ids)); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "error checking automation steps")
+		}
+		if len(steps) > 0 {
+			isStep := make(map[int]bool, len(steps))
+			for _, sid := range steps {
+				isStep[sid] = true
+			}
+			kept := ids[:0:0]
+			for _, cid := range ids {
+				if !isStep[cid] {
+					kept = append(kept, cid)
+				}
+			}
+			if len(kept) == 0 {
+				return echo.NewHTTPError(http.StatusBadRequest, msgAutomationEmail)
+			}
+			ids = kept
+		}
 	}
 
 	// Delete the campaigns from the DB.

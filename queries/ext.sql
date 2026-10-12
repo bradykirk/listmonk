@@ -124,7 +124,9 @@ subs AS (
 ),
 camps AS (
     SELECT c.status, c.sent FROM campaigns c
-    WHERE EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = c.id)
+    -- FORK(hcm): automation step campaigns are not counted.
+    WHERE NOT EXISTS (SELECT 1 FROM ext.automation_steps s WHERE s.campaign_id = c.id)
+    AND EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = c.id)
     AND NOT EXISTS (
         SELECT 1 FROM campaign_lists x
         WHERE x.campaign_id = c.id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($1::INT[])))

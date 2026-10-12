@@ -72,6 +72,9 @@ type App struct {
 	// Global state that stores data on an available remote update.
 	update *AppUpdate
 	sync.Mutex
+
+	// FORK(hcm): automations store, shared with the worker.
+	automations *automations.Store
 }
 
 var (
@@ -320,6 +323,9 @@ func main() {
 
 		// If there are no users, then the app needs to prompt for new user setup.
 		needsUserSetup: !hasUsers,
+
+		// FORK(hcm)
+		automations: automations.NewStore(db),
 	}
 
 	// Star the update checker.
