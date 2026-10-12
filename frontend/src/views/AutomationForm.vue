@@ -134,18 +134,19 @@ export default Vue.extend({
 
     onSave() {
       this.isSaving = true;
-      this.$api.updateAutomation(this.automation.id, {
+      const body = {
         name: this.form.name,
         list_id: this.form.list_id,
-        enabled: this.form.enabled,
         steps: this.form.steps.map((s) => ({ position: s.position, delay_minutes: s.delay_minutes })),
-      }).then(() => {
+      };
+      // Send enabled only when the user changed the switch; otherwise the server keeps the state.
+      if (this.form.enabled !== this.automation.enabled) {
+        body.enabled = this.form.enabled;
+      }
+      this.$api.updateAutomation(this.automation.id, body).then(() => {
         this.$utils.toast(this.$t('globals.messages.updated', { name: this.form.name }));
-      }).finally(() => {
-        this.isSaving = false;
-        // Reload so a refused change shows the true state.
-        this.load();
-      });
+        return this.load();
+      }).finally(() => { this.isSaving = false; });
     },
 
     onDelete() {

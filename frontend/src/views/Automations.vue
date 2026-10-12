@@ -20,7 +20,7 @@
       </div>
     </header>
 
-    <b-table :data="automations" :loading="loading.campaigns" hoverable default-sort="name">
+    <b-table :key="reloadKey" :data="automations" :loading="loading.campaigns" hoverable default-sort="name">
       <b-table-column v-slot="props" field="name" :label="$t('globals.fields.name')" sortable>
         <router-link :to="{ name: 'automation', params: { id: props.row.id } }" data-cy="automation-name">
           {{ props.row.name }}
@@ -105,6 +105,7 @@ export default Vue.extend({
   data() {
     return {
       automations: [],
+      reloadKey: 0,
       isFormVisible: false,
       isSaving: false,
       form: { name: '', list_id: null },
@@ -115,6 +116,8 @@ export default Vue.extend({
     getAutomations() {
       return this.$api.getAutomations().then((data) => {
         this.automations = data || [];
+        // Re-create the table so every switch shows the server state.
+        this.reloadKey += 1;
       });
     },
 
