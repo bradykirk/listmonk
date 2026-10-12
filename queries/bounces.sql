@@ -81,10 +81,21 @@ DELETE FROM bounces WHERE ($2 = TRUE OR id = ANY($1))
         )));
 
 -- name: delete-bounces-by-subscriber
+-- FORK(hcm): brand scope. $3 = brand list IDs, NULL = all brands (same predicate as query-bounces).
 WITH sub AS (
     SELECT id FROM subscribers WHERE CASE WHEN $1 > 0 THEN id = $1 ELSE uuid = $2 END
 )
-DELETE FROM bounces WHERE subscriber_id = (SELECT id FROM sub);
+DELETE FROM bounces WHERE subscriber_id = (SELECT id FROM sub)
+    AND ($3::INT[] IS NULL
+        OR (bounces.campaign_id IS NOT NULL
+            AND EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = bounces.campaign_id)
+            AND NOT EXISTS (
+                SELECT 1 FROM campaign_lists x
+                WHERE x.campaign_id = bounces.campaign_id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($3::INT[])))
+            ))
+        OR (bounces.campaign_id IS NULL AND EXISTS (
+            SELECT 1 FROM subscriber_lists sl WHERE sl.subscriber_id = bounces.subscriber_id AND sl.list_id = ANY($3::INT[])
+        )));
 
 -- name: blocklist-bounced-subscribers
 WITH subs AS (

@@ -528,13 +528,14 @@ func (c *Core) ConfirmOptionSubscription(subUUID string, listUUIDs []string, met
 }
 
 // DeleteSubscriberBounces deletes the given list of subscribers.
-func (c *Core) DeleteSubscriberBounces(id int, uuid string) error {
+// FORK(hcm): brandLists (nil = all brands) limits the delete to the brand's bounces.
+func (c *Core) DeleteSubscriberBounces(id int, uuid string, brandLists []int) error {
 	var uu any
 	if uuid != "" {
 		uu = uuid
 	}
 
-	if _, err := c.q.DeleteBouncesBySubscriber.Exec(id, uu); err != nil {
+	if _, err := c.q.DeleteBouncesBySubscriber.Exec(id, uu, brandArg(brandLists)); err != nil { // FORK(hcm): brand
 		c.log.Printf("error deleting bounces: %v", err)
 		return echo.NewHTTPError(http.StatusInternalServerError,
 			c.i18n.Ts("globals.messages.errorDeleting", "name", "{globals.terms.bounces}", "error", pqErrMsg(err)))

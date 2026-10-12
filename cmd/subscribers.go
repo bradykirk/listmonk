@@ -798,7 +798,8 @@ func (a *App) DeleteSubscriberBounces(c echo.Context) error {
 	}
 
 	// Delete the bounces from the DB.
-	if err := a.core.DeleteSubscriberBounces(id, ""); err != nil {
+	// FORK(hcm): in a brand view, only the brand's bounces are deleted.
+	if err := a.core.DeleteSubscriberBounces(id, "", brandListsOrNil(c)); err != nil {
 		return err
 	}
 

@@ -411,3 +411,43 @@ func TestCreateOwnedIsAtomic(t *testing.T) {
 		t.Fatal("unassigned template has an owner row")
 	}
 }
+
+// DELETE /api/subscribers/:id/bounces in a brand view removes only that brand's bounces.
+func TestBrandAwareSubscriberBounceDelete(t *testing.T) {
+	db, q := awareDB(t)
+	// Subscriber 1 is on lists 1 (ri) and 2 (ta), with a bounce on A (ri) and on B (ta).
+	db.MustExec(`INSERT INTO subscriber_lists (subscriber_id, list_id, status) VALUES (1, 2, 'confirmed');
+		INSERT INTO bounces (id, subscriber_id, campaign_id, type) VALUES (5, 1, 2, 'hard')`)
+	left := func() []int {
+		var ids []int
+		if err := db.Select(&ids, `SELECT id FROM bounces WHERE subscriber_id = 1 ORDER BY id`); err != nil {
+			t.Fatal(err)
+		}
+		return ids
+	}
+	if got := left(); !reflect.DeepEqual(got, []int{1, 5}) {
+		t.Fatalf("fixture: %v", got)
+	}
+	// Empty brand matches nothing.
+	if _, err := q.DeleteBouncesBySubscriber.Exec(1, nil, pq.Array([]int{})); err != nil {
+		t.Fatal(err)
+	}
+	if got := left(); !reflect.DeepEqual(got, []int{1, 5}) {
+		t.Fatalf("after {} delete: %v", got)
+	}
+	// TA view: only the TA bounce goes.
+	if _, err := q.DeleteBouncesBySubscriber.Exec(1, nil, pq.Array([]int{2})); err != nil {
+		t.Fatal(err)
+	}
+	if got := left(); !reflect.DeepEqual(got, []int{1}) {
+		t.Fatalf("after ta delete: %v", got)
+	}
+	// No brand: upstream, every bounce of the subscriber goes.
+	db.MustExec(`INSERT INTO bounces (id, subscriber_id, campaign_id, type) VALUES (6, 1, 2, 'hard')`)
+	if _, err := q.DeleteBouncesBySubscriber.Exec(1, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := left(); len(got) != 0 {
+		t.Fatalf("after unbranded delete: %v", got)
+	}
+}
