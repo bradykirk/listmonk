@@ -32,6 +32,7 @@
 
 <script>
 import { uris } from '../constants';
+import { brandURL } from '../brand';
 
 export default {
   name: 'CampaignPreview',
@@ -98,7 +99,9 @@ export default {
         }
       }
 
-      return uri.replace(':id', this.id);
+      // FORK(hcm): the browser loads this URL directly (iframe, form), so it needs ext_brand.
+      const url = uri.replace(':id', this.id);
+      return url === 'about:blank' ? url : brandURL(url);
     },
   },
 

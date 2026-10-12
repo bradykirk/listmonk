@@ -4,6 +4,7 @@ import qs from 'qs';
 import store from '../store';
 import { models } from '../constants';
 import Utils from '../utils';
+import { getTabBrand } from '../brand';
 
 const http = axios.create({
   baseURL: import.meta.env.VUE_APP_ROOT_URL || '/',
@@ -22,6 +23,11 @@ http.interceptors.request.use((config) => {
   if ('loading' in config) {
     store.commit('setLoading', { model: config.loading, status: true });
   }
+
+  // FORK(hcm): brand scope of this tab. Empty = All brands.
+  const brand = getTabBrand();
+  // eslint-disable-next-line no-param-reassign
+  if (brand) { config.headers['X-Listmonk-Brand'] = brand; }
   return config;
 }, (error) => Promise.reject(error));
 
@@ -398,10 +404,10 @@ export const getMedia = async (params) => http.get(
   { params, loading: models.media, store: models.media },
 );
 
-export const uploadMedia = (data) => http.post(
+export const uploadMedia = (data, params) => http.post(
   '/api/media',
   data,
-  { loading: models.media },
+  { loading: models.media, params }, // FORK(hcm): params carries ?brand=<slug|shared>
 );
 
 export const deleteMedia = (id) => http.delete(
@@ -410,10 +416,10 @@ export const deleteMedia = (id) => http.delete(
 );
 
 // Templates.
-export const createTemplate = async (data) => http.post(
+export const createTemplate = async (data, params) => http.post(
   '/api/templates',
   data,
-  { loading: models.templates },
+  { loading: models.templates, params }, // FORK(hcm): params carries ?brand=<slug|shared>
 );
 
 export const getTemplates = async () => http.get(
@@ -603,3 +609,19 @@ export const disableTOTP = (id, data) => http.delete(
   `/api/users/${id}/twofa`,
   { data },
 );
+
+// Brands (hcm fork). updateBrand must always send the complete object: the
+// server replaces the whole row.
+export const getBrands = () => http.get('/api/ext/brands', { camelCase: false, disableToast: true });
+
+export const createBrand = (data) => http.post('/api/ext/brands', data);
+
+export const updateBrand = (data) => http.put(`/api/ext/brands/${data.slug}`, data);
+
+export const deleteBrand = (slug) => http.delete(`/api/ext/brands/${slug}`);
+
+export const setTemplateBrand = (id, brand) => http.put(`/api/ext/templates/${id}/brand`, { brand });
+
+export const setMediaBrand = (id, brand) => http.put(`/api/ext/media/${id}/brand`, { brand });
+
+export const getOwnership = () => http.get('/api/ext/ownership', { camelCase: false, disableToast: true });

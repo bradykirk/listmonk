@@ -23,6 +23,11 @@
       </div>
     </header>
 
+    <!-- FORK(hcm) -->
+    <p v-if="tabBrand" class="is-size-7 has-text-grey mb-3" data-cy="brand-global-note">
+      Delete and blocklist are global actions. Select All brands.
+    </p>
+
     <section class="subscribers-controls">
       <div class="columns">
         <div class="column is-8">
@@ -86,10 +91,12 @@
             <a class="a" href="#" @click.prevent="showBulkListForm" data-cy="btn-manage-lists">
               <b-icon icon="format-list-bulleted-square" size="is-small" /> Manage lists
             </a>
-            <a class="a" href="#" @click.prevent="deleteSubscribers" data-cy="btn-delete-subscribers">
+            <a v-if="!tabBrand" class="a" href="#" @click.prevent="deleteSubscribers"
+              data-cy="btn-delete-subscribers">
               <b-icon icon="trash-can-outline" size="is-small" /> Delete
             </a>
-            <a class="a" href="#" @click.prevent="blocklistSubscribers" data-cy="btn-manage-blocklist">
+            <a v-if="!tabBrand" class="a" href="#" @click.prevent="blocklistSubscribers"
+              data-cy="btn-manage-blocklist">
               <b-icon icon="account-off-outline" size="is-small" /> Blocklist
             </a>
             <span class="a">
@@ -153,7 +160,7 @@
 
       <b-table-column v-slot="props" cell-class="actions" align="right">
         <div>
-          <a :href="`/api/subscribers/${props.row.id}/export`" data-cy="btn-download"
+          <a :href="brandURL(`/api/subscribers/${props.row.id}/export`)" data-cy="btn-download"
             :aria-label="$t('subscribers.downloadData')">
             <b-tooltip :label="$t('subscribers.downloadData')" type="is-dark">
               <b-icon icon="cloud-download-outline" size="is-small" />
@@ -165,7 +172,7 @@
               <b-icon icon="pencil-outline" size="is-small" />
             </b-tooltip>
           </a>
-          <a v-if="$can('subscribers:manage')" href="#" @click.prevent="deleteSubscriber(props.row)"
+          <a v-if="$can('subscribers:manage') && !tabBrand" href="#" @click.prevent="deleteSubscriber(props.row)"
             data-cy="btn-delete" :aria-label="$t('globals.buttons.delete')">
             <b-tooltip :label="$t('globals.buttons.delete')" type="is-dark">
               <b-icon icon="trash-can-outline" size="is-small" />
@@ -196,6 +203,7 @@ import Vue from 'vue';
 import { mapState } from 'vuex';
 import EmptyPlaceholder from '../components/EmptyPlaceholder.vue';
 import { uris } from '../constants';
+import { brandURL, getTabBrand } from '../brand';
 import SubscriberBulkList from './SubscriberBulkList.vue';
 import SubscriberForm from './SubscriberForm.vue';
 import CopyText from '../components/CopyText.vue';
@@ -242,6 +250,9 @@ export default Vue.extend({
   },
 
   methods: {
+    // FORK(hcm): add ext_brand to URLs that the browser loads directly.
+    brandURL,
+
     // Count the lists from which a subscriber has not unsubscribed.
     listCount(lists) {
       return lists.reduce((defVal, item) => (defVal + (item.subscriptionStatus !== 'unsubscribed' ? 1 : 0)), 0);
@@ -431,7 +442,7 @@ export default Vue.extend({
           this.bulk.checked.map((s) => q.append('id', s.id));
         }
 
-        document.location.href = `${uris.exportSubscribers}?${q.toString()}`;
+        document.location.href = brandURL(`${uris.exportSubscribers}?${q.toString()}`);
       });
     },
 
@@ -507,6 +518,11 @@ export default Vue.extend({
 
   computed: {
     ...mapState(['subscribers', 'lists', 'loading']),
+
+    // FORK(hcm)
+    tabBrand() {
+      return getTabBrand();
+    },
 
     numSelectedSubscribers() {
       if (this.bulk.all) {

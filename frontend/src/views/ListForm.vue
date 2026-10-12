@@ -44,6 +44,16 @@
           </b-select>
         </b-field>
 
+        <!-- FORK(hcm): the brand of a list is set by one of the brand's list tags. -->
+        <b-field v-if="brandChoices.length" label="Brand" label-position="on-border"
+          :message="tabBrand ? '' : 'Saving replaces any brand list tag with the first list tag of this brand.'">
+          <b-select v-model="brand" name="brand" placeholder="Brand" :required="!isEditing && !tabBrand"
+            :disabled="!!tabBrand" expanded data-cy="list-brand">
+            <option v-if="isEditing" value="">Unassigned</option>
+            <option v-for="b in brandChoices" :key="b.slug" :value="b.slug">{{ b.name }}</option>
+          </b-select>
+        </b-field>
+
         <b-field :label="$t('globals.terms.tags')" label-position="on-border">
           <b-taginput v-model="form.tags" name="tags" ellipsis icon="tag-outline"
             :placeholder="$t('globals.terms.tags')" />
@@ -75,6 +85,7 @@
 import Vue from 'vue';
 import { mapState } from 'vuex';
 import CopyText from '../components/CopyText.vue';
+import { getTabBrand } from '../brand';
 
 export default Vue.extend({
   name: 'ListForm',
@@ -98,6 +109,9 @@ export default Vue.extend({
         status: 'active',
         tags: [],
       },
+
+      // FORK(hcm): slug of the selected brand ('' = none).
+      brand: '',
     };
   },
 
@@ -111,8 +125,24 @@ export default Vue.extend({
       this.createList();
     },
 
+    // FORK(hcm): the list payload with the brand tag applied.
+    payload() {
+      const { brand, ...rest } = { ...this.form, brand: this.brand };
+      const sel = this.brands.find((b) => b.slug === brand);
+      if (!sel) {
+        return rest;
+      }
+      const all = new Set();
+      this.brands.forEach((b) => (b.list_tags || []).forEach((t) => all.add(t)));
+      const tags = (rest.tags || []).filter((t) => !all.has(t));
+      if (sel.list_tags && sel.list_tags.length > 0) {
+        tags.push(sel.list_tags[0]);
+      }
+      return { ...rest, tags };
+    },
+
     createList() {
-      this.$api.createList(this.form).then((data) => {
+      this.$api.createList(this.payload()).then((data) => {
         this.$emit('finished');
         this.$parent.close();
         this.$utils.toast(this.$t('globals.messages.created', { name: data.name }));
@@ -120,7 +150,7 @@ export default Vue.extend({
     },
 
     updateList() {
-      this.$api.updateList({ id: this.data.id, ...this.form }).then((data) => {
+      this.$api.updateList({ id: this.data.id, ...this.payload() }).then((data) => {
         this.$emit('finished');
         this.$parent.close();
         this.$utils.toast(this.$t('globals.messages.updated', { name: data.name }));
@@ -129,7 +159,16 @@ export default Vue.extend({
   },
 
   computed: {
-    ...mapState(['loading', 'profile']),
+    ...mapState(['loading', 'profile', 'brands']),
+
+    // FORK(hcm)
+    tabBrand() {
+      return getTabBrand();
+    },
+
+    brandChoices() {
+      return this.brands.filter((b) => b.list_tags && b.list_tags.length > 0);
+    },
 
     isArchived: {
       get() {
@@ -143,6 +182,14 @@ export default Vue.extend({
 
   mounted() {
     this.form = { ...this.form, ...this.$props.data };
+
+    // FORK(hcm): preselect the current brand, or the brand that owns the list.
+    if (this.tabBrand) {
+      this.brand = this.tabBrand;
+    } else {
+      const own = this.brands.find((b) => (b.list_tags || []).some((t) => (this.form.tags || []).includes(t)));
+      this.brand = own ? own.slug : '';
+    }
 
     this.$nextTick(() => {
       this.$refs.focus.focus();

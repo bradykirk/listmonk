@@ -24,6 +24,10 @@
         <b-tag v-if="props.row.isDefault">
           {{ $t('templates.default') }}
         </b-tag>
+        <!-- FORK(hcm): brand label, All brands only. -->
+        <b-tag v-if="templateBrandLabel(props.row.id)" class="is-info is-light" data-cy="brand-label">
+          {{ templateBrandLabel(props.row.id) }}
+        </b-tag>
 
         <p class="is-size-7 has-text-grey" v-if="props.row.type === 'tx'">
           {{ props.row.subject }}
@@ -122,6 +126,7 @@ import CampaignPreview from '../components/CampaignPreview.vue';
 import EmptyPlaceholder from '../components/EmptyPlaceholder.vue';
 
 import TemplateForm from './TemplateForm.vue';
+import { getTabBrand } from '../brand';
 
 export default Vue.extend({
   components: {
@@ -132,6 +137,8 @@ export default Vue.extend({
 
   data() {
     return {
+      // FORK(hcm): GET /api/ext/ownership.
+      ownership: null,
       curItem: null,
       isEditing: false,
       isFormVisible: false,
@@ -142,6 +149,30 @@ export default Vue.extend({
   methods: {
     fetchTemplates() {
       this.$api.getTemplates();
+      this.loadOwnership();
+    },
+
+    // FORK(hcm): "Unassigned", "Shared", or the brand name, in All brands only.
+    templateBrandLabel(id) {
+      if (getTabBrand() || !this.ownership) {
+        return '';
+      }
+      const m = this.ownership.templates || {};
+      if (!(id in m)) {
+        return 'Unassigned';
+      }
+      if (m[id] === null) {
+        return 'Shared';
+      }
+      const b = this.brands.find((i) => i.slug === m[id]);
+      return b ? b.name : m[id];
+    },
+
+    loadOwnership() {
+      if (getTabBrand()) {
+        return;
+      }
+      this.$api.getOwnership().then((o) => { this.ownership = o; }).catch(() => {});
     },
 
     // Show the edit form.
@@ -159,7 +190,7 @@ export default Vue.extend({
     },
 
     formFinished() {
-      this.$api.getTemplates();
+      this.fetchTemplates();
     },
 
     previewTemplate(c) {
@@ -179,7 +210,7 @@ export default Vue.extend({
         body_source: t.bodySource,
       };
       this.$api.createTemplate(data).then((d) => {
-        this.$api.getTemplates();
+        this.fetchTemplates();
         this.$emit('finished');
         this.$utils.toast(`'${d.name}' created`);
       });
@@ -187,21 +218,21 @@ export default Vue.extend({
 
     makeTemplateDefault(tpl) {
       this.$api.makeTemplateDefault(tpl.id).then(() => {
-        this.$api.getTemplates();
+        this.fetchTemplates();
         this.$utils.toast(this.$t('globals.messages.created', { name: tpl.name }));
       });
     },
 
     deleteTemplate(tpl) {
       this.$api.deleteTemplate(tpl.id).then(() => {
-        this.$api.getTemplates();
+        this.fetchTemplates();
         this.$utils.toast(this.$t('globals.messages.deleted', { name: tpl.name }));
       });
     },
   },
 
   computed: {
-    ...mapState(['templates', 'loading']),
+    ...mapState(['templates', 'loading', 'brands']),
   },
 
   created() {
@@ -214,6 +245,7 @@ export default Vue.extend({
 
   mounted() {
     this.$api.getTemplates();
+    this.loadOwnership();
   },
 });
 </script>

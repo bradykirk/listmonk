@@ -40,9 +40,9 @@
           </div>
           <div class="column is-4">
             <b-field :label="$t('globals.fields.status')" label-position="on-border"
-              :message="$t('subscribers.blocklistedHelp')">
+              :message="tabBrand ? 'Status is global. Select All brands to change it.' : $t('subscribers.blocklistedHelp')">
               <b-select v-model="form.status" name="status" :placeholder="$t('globals.fields.status')" required
-                expanded>
+                :disabled="!!tabBrand" expanded data-cy="subscriber-status">
                 <option value="enabled">
                   {{ $t('subscribers.status.enabled') }}
                 </option>
@@ -53,6 +53,12 @@
             </b-field>
           </div>
         </div>
+
+        <!-- FORK(hcm) -->
+        <p v-if="tabBrand" class="is-size-7 has-text-grey mb-3" data-cy="brand-shared-note">
+          Shared across all brands: email, name, and attributes.
+          Delete and blocklist are global actions. Select All brands.
+        </p>
 
         <b-tabs type="is-boxed" :animated="false">
           <b-tab-item :label="$t('globals.terms.lists')" label-position="on-border">
@@ -182,6 +188,7 @@ import { mapState } from 'vuex';
 import ListSelector from '../components/ListSelector.vue';
 import CopyText from '../components/CopyText.vue';
 import SubscriberActivity from '../components/SubscriberActivity.vue';
+import { getTabBrand } from '../brand';
 
 export default Vue.extend({
   components: {
@@ -346,6 +353,11 @@ export default Vue.extend({
 
   computed: {
     ...mapState(['lists', 'loading']),
+
+    // FORK(hcm)
+    tabBrand() {
+      return getTabBrand();
+    },
 
     hasOptinList() {
       return this.form.lists.some((l) => l.optin === 'double');

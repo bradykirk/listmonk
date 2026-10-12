@@ -13,6 +13,21 @@
         <navigation v-if="isMobile" :is-mobile="isMobile" :active-item="activeItem" :active-group="activeGroup"
           @toggleGroup="toggleGroup" @doLogout="doLogout" />
 
+        <!-- FORK(hcm): brand switcher. The label always shows this tab's brand. -->
+        <b-navbar-dropdown class="brand-switcher" tag="div" right data-cy="brand-switcher">
+          <template #label>
+            <b-icon icon="tag-outline" /> {{ brandLabel }}
+          </template>
+          <b-navbar-item tag="a" href="#" :active="!tabBrand" @click.prevent="selectBrand('')"
+            data-cy="brand-all">
+            All brands
+          </b-navbar-item>
+          <b-navbar-item v-for="b in brands" :key="b.slug" tag="a" href="#" :active="b.slug === tabBrand"
+            @click.prevent="selectBrand(b.slug)" :data-cy="`brand-${b.slug}`">
+            {{ b.name }}
+          </b-navbar-item>
+        </b-navbar-dropdown>
+
         <b-navbar-item tag="a" href="#" @click.prevent="emitPageRefresh" data-cy="btn-refresh"
           :aria-label="$t('globals.buttons.refresh')">
           <b-tooltip :label="$t('globals.buttons.refresh')" type="is-dark" position="is-bottom">
@@ -101,6 +116,10 @@
           </div>
         </div>
 
+        <div v-if="tabBrand" class="brand-tag mb-3" data-cy="brand-tag">
+          <b-tag type="is-info">{{ brandLabel }}</b-tag>
+        </div>
+
         <router-view :key="$route.fullPath" />
       </div>
     </div>
@@ -113,6 +132,7 @@
 import Vue from 'vue';
 import { mapState } from 'vuex';
 import { uris } from './constants';
+import { getTabBrand, selectBrand } from './brand';
 
 import Navigation from './components/Navigation.vue';
 
@@ -147,6 +167,25 @@ export default Vue.extend({
   },
 
   methods: {
+    // FORK(hcm)
+    selectBrand,
+
+    // FORK(hcm): load the brands. If this tab's brand no longer exists (or the
+    // brands cannot be loaded), fall back to All brands once, so that the
+    // header does not make every request fail with 400.
+    loadBrands() {
+      this.$api.getBrands().then((data) => {
+        this.$store.commit('setBrands', data);
+        if (this.tabBrand && !data.some((b) => b.slug === this.tabBrand)) {
+          selectBrand('');
+        }
+      }).catch(() => {
+        if (this.tabBrand) {
+          selectBrand('');
+        }
+      });
+    },
+
     toggleGroup(group, state) {
       this.activeGroup = state ? { [group]: true } : {};
     },
@@ -196,7 +235,20 @@ export default Vue.extend({
   },
 
   computed: {
-    ...mapState(['serverConfig', 'profile']),
+    ...mapState(['serverConfig', 'profile', 'brands']),
+
+    // FORK(hcm)
+    tabBrand() {
+      return getTabBrand();
+    },
+
+    brandLabel() {
+      if (!this.tabBrand) {
+        return 'All brands';
+      }
+      const b = this.brands.find((i) => i.slug === this.tabBrand);
+      return b ? b.name : this.tabBrand;
+    },
 
     isGlobalNotices() {
       return (this.serverConfig.needs_restart
@@ -218,6 +270,7 @@ export default Vue.extend({
   mounted() {
     // Lists is required across different views. On app load, fetch the lists
     // and have them in the store.
+    this.loadBrands();
     this.$api.getLists({ minimal: true, per_page: 'all', status: 'active' });
 
     window.addEventListener('resize', () => {

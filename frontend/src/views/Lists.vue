@@ -70,6 +70,10 @@
             <b-tag class="is-small" v-for="t in props.row.tags" :key="t">
               {{ t }}
             </b-tag>
+            <!-- FORK(hcm): brand label, All brands only. -->
+            <b-tag v-if="listBrandLabel(props.row.id)" class="is-small is-info is-light" data-cy="brand-label">
+              {{ listBrandLabel(props.row.id) }}
+            </b-tag>
           </b-taglist>
         </div>
       </b-table-column>
@@ -189,6 +193,7 @@ import Vue from 'vue';
 import { mapState } from 'vuex';
 import EmptyPlaceholder from '../components/EmptyPlaceholder.vue';
 import ListForm from './ListForm.vue';
+import { getTabBrand } from '../brand';
 
 export default Vue.extend({
   components: {
@@ -198,6 +203,9 @@ export default Vue.extend({
 
   data() {
     return {
+      // FORK(hcm): GET /api/ext/ownership.
+      ownership: null,
+
       // Current list item being edited.
       curItem: null,
       isEditing: false,
@@ -220,6 +228,29 @@ export default Vue.extend({
   },
 
   methods: {
+    // FORK(hcm): "Unassigned", "Ambiguous", or the brand name, in All brands only.
+    listBrandLabel(id) {
+      if (getTabBrand() || !this.ownership) {
+        return '';
+      }
+      const o = (this.ownership.lists || {})[id];
+      if (!o || (!o.slug && !o.ambiguous)) {
+        return 'Unassigned';
+      }
+      if (o.ambiguous) {
+        return 'Ambiguous';
+      }
+      const b = this.brands.find((i) => i.slug === o.slug);
+      return b ? b.name : o.slug;
+    },
+
+    loadOwnership() {
+      if (getTabBrand()) {
+        return;
+      }
+      this.$api.getOwnership().then((o) => { this.ownership = o; }).catch(() => {});
+    },
+
     onPageChange(p) {
       this.queryParams.page = p;
       this.getLists();
@@ -265,6 +296,7 @@ export default Vue.extend({
     },
 
     getLists() {
+      this.loadOwnership(); // FORK(hcm)
       this.$api.queryLists({
         page: this.queryParams.page,
         query: this.queryParams.query.replace(/[^\p{L}\p{N}\s]/gu, ' '),
@@ -356,7 +388,7 @@ export default Vue.extend({
   },
 
   computed: {
-    ...mapState(['loading', 'settings']),
+    ...mapState(['loading', 'settings', 'brands']),
 
     numSelectedLists() {
       return this.bulk.all ? this.lists.total : this.bulk.checked.length;
@@ -372,6 +404,7 @@ export default Vue.extend({
   },
 
   mounted() {
+    this.loadOwnership();
     if (this.$route.params.id) {
       this.$api.getList(parseInt(this.$route.params.id, 10)).then((data) => {
         this.showEditForm(data);

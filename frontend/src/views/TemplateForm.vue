@@ -41,6 +41,19 @@
               </b-field>
             </div>
           </div>
+          <!-- FORK(hcm): template brand. In a brand view the server uses the header brand. -->
+          <div class="columns" v-if="brands.length">
+            <div class="column is-12">
+              <b-field label="Brand" label-position="on-border">
+                <b-select v-model="brand" name="brand" placeholder="Brand" :required="!isEditing && !tabBrand"
+                  :disabled="!!tabBrand" expanded data-cy="template-brand">
+                  <option v-if="isEditing && !tabBrand && brand === ''" value="">Unassigned</option>
+                  <option value="shared">Shared</option>
+                  <option v-for="b in brands" :key="b.slug" :value="b.slug">{{ b.name }}</option>
+                </b-select>
+              </b-field>
+            </div>
+          </div>
           <div class="columns" v-if="form.type === 'tx'">
             <div class="column is-12">
               <b-field :label="$t('templates.subject')" label-position="on-border">
@@ -92,6 +105,7 @@ import CampaignPreview from '../components/CampaignPreview.vue';
 import CodeEditor from '../components/CodeEditor.vue';
 import VisualEditor from '../components/VisualEditor.vue';
 import CopyText from '../components/CopyText.vue';
+import { getTabBrand } from '../brand';
 
 export default Vue.extend({
   components: {
@@ -117,6 +131,9 @@ export default Vue.extend({
         body: null,
         bodySource: null,
       },
+      // FORK(hcm): '' = unassigned (edit only), 'shared', or a brand slug.
+      brand: '',
+      origBrand: '',
       previewItem: null,
       egPlaceholder: '{{ template "content" . }}',
     };
@@ -153,7 +170,9 @@ export default Vue.extend({
         body_source: this.form.bodySource,
       };
 
-      this.$api.createTemplate(data).then((d) => {
+      // FORK(hcm): in All brands, send the owner so the server saves it with the row.
+      const params = this.tabBrand ? undefined : { brand: this.brand };
+      this.$api.createTemplate(data, params).then((d) => {
         this.$emit('finished');
         this.$parent.close();
         this.$utils.toast(this.$t('globals.messages.created', { name: d.name }));
@@ -171,6 +190,13 @@ export default Vue.extend({
       };
 
       this.$api.updateTemplate(data).then((d) => {
+        // FORK(hcm): a changed owner is a separate call.
+        if (!this.tabBrand && this.brand !== '' && this.brand !== this.origBrand) {
+          return this.$api.setTemplateBrand(this.data.id, this.brand === 'shared' ? null : this.brand)
+            .then(() => d);
+        }
+        return d;
+      }).then((d) => {
         this.$emit('finished');
         this.$parent.close();
         this.$utils.toast(`'${d.name}' updated`);
@@ -184,11 +210,30 @@ export default Vue.extend({
   },
 
   computed: {
-    ...mapState(['loading']),
+    ...mapState(['loading', 'brands']),
+
+    // FORK(hcm)
+    tabBrand() {
+      return getTabBrand();
+    },
   },
 
   mounted() {
     this.form = { ...this.$props.data };
+
+    // FORK(hcm)
+    if (this.tabBrand) {
+      this.brand = this.tabBrand;
+    } else if (this.isEditing) {
+      this.$api.getOwnership().then((o) => {
+        const owners = (o && o.templates) || {};
+        const { id } = this.data;
+        if (id in owners) {
+          this.brand = owners[id] === null ? 'shared' : owners[id];
+        }
+        this.origBrand = this.brand;
+      }).catch(() => {});
+    }
 
     this.$nextTick(() => {
       this.$refs.focus.focus();

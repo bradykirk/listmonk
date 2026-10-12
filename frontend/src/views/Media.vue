@@ -47,6 +47,14 @@
                 {{ f.name }}
               </b-tag>
             </div>
+            <!-- FORK(hcm): in a brand view the server uses the header brand. -->
+            <b-field v-if="brands.length" label="Brand" class="mt-3">
+              <b-select v-model="uploadBrand" name="brand" placeholder="Brand" :required="!tabBrand"
+                :disabled="!!tabBrand" data-cy="media-brand">
+                <option value="shared">Shared</option>
+                <option v-for="b in brands" :key="b.slug" :value="b.slug">{{ b.name }}</option>
+              </b-select>
+            </b-field>
             <div class="buttons">
               <b-button native-type="submit" type="is-primary" icon-left="file-upload-outline"
                 :disabled="form.files.length === 0" :loading="isProcessing">
@@ -90,6 +98,16 @@
           <div class="info">
             <p class="filename" :title="item.filename">{{ item.filename }}</p>
             <p class="date">{{ $utils.niceDate(item.createdAt, false) }}</p>
+            <!-- FORK(hcm): owner label and owner change, All brands only. -->
+            <template v-if="!tabBrand && ownership">
+              <b-select v-if="$can('media:manage')" size="is-small" :value="ownerOf(item.id)"
+                @input="(v) => onSetBrand(item.id, v)" data-cy="media-owner">
+                <option v-if="ownerOf(item.id) === ''" value="" disabled>Unassigned</option>
+                <option value="shared">Shared</option>
+                <option v-for="b in brands" :key="b.slug" :value="b.slug">{{ b.name }}</option>
+              </b-select>
+              <b-tag v-else size="is-small">{{ ownerLabel(item.id) }}</b-tag>
+            </template>
           </div>
         </div>
       </div>
@@ -112,6 +130,7 @@
 import Vue from 'vue';
 import { mapState } from 'vuex';
 import EmptyPlaceholder from '../components/EmptyPlaceholder.vue';
+import { getTabBrand } from '../brand';
 
 export default Vue.extend({
   components: {
@@ -134,6 +153,10 @@ export default Vue.extend({
       uploaded: 0,
       showUploadForm: false,
 
+      // FORK(hcm)
+      uploadBrand: '',
+      ownership: null,
+
       queryParams: {
         page: 1,
         query: '',
@@ -142,6 +165,40 @@ export default Vue.extend({
   },
 
   methods: {
+    // FORK(hcm): '' = unassigned, 'shared', or a brand slug.
+    ownerOf(id) {
+      const m = this.ownership.media || {};
+      if (!(id in m)) {
+        return '';
+      }
+      return m[id] === null ? 'shared' : m[id];
+    },
+
+    ownerLabel(id) {
+      const o = this.ownerOf(id);
+      if (o === '') {
+        return 'Unassigned';
+      }
+      if (o === 'shared') {
+        return 'Shared';
+      }
+      const b = this.brands.find((i) => i.slug === o);
+      return b ? b.name : o;
+    },
+
+    loadOwnership() {
+      if (this.tabBrand) {
+        return;
+      }
+      this.$api.getOwnership().then((o) => { this.ownership = o; }).catch(() => {});
+    },
+
+    onSetBrand(id, v) {
+      this.$api.setMediaBrand(id, v === 'shared' ? null : v).then(() => {
+        this.loadOwnership();
+      });
+    },
+
     removeUploadFile(i) {
       this.form.files.splice(i, 1);
     },
@@ -181,7 +238,8 @@ export default Vue.extend({
       for (let i = 0; i < this.toUpload; i += 1) {
         const params = new FormData();
         params.set('file', this.form.files[i]);
-        this.$api.uploadMedia(params).then(() => {
+        // FORK(hcm): in All brands, send the owner so the server saves it with the row.
+        this.$api.uploadMedia(params, this.tabBrand ? undefined : { brand: this.uploadBrand }).then(() => {
           this.onUploaded();
         }, () => {
           this.onUploaded();
@@ -203,6 +261,7 @@ export default Vue.extend({
         this.form.files = [];
 
         this.getMedia();
+        this.loadOwnership();
       }
     },
 
@@ -213,7 +272,12 @@ export default Vue.extend({
   },
 
   computed: {
-    ...mapState(['loading', 'media', 'serverConfig']),
+    ...mapState(['loading', 'media', 'serverConfig', 'brands']),
+
+    // FORK(hcm)
+    tabBrand() {
+      return getTabBrand();
+    },
 
     isProcessing() {
       if (this.toUpload > 0 && this.uploaded < this.toUpload) {
@@ -233,6 +297,10 @@ export default Vue.extend({
 
   mounted() {
     this.$api.getMedia();
+    this.loadOwnership();
+    if (this.tabBrand) {
+      this.uploadBrand = this.tabBrand;
+    }
 
     if (this.$utils.getPref('media.upload')) {
       this.showUploadForm = true;

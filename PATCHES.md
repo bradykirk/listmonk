@@ -618,3 +618,18 @@ by-id 404), `cmd/bounce.go`, `cmd/admin.go` (dashboard counts/charts),
 `internal/core/bounces.go`, `internal/core/dashboard.go`, `queries/media.sql`
 (`query-media` `$5`), `queries/bounces.sql` (`query-bounces` `$7`,
 `delete-bounces` `$3`), `models/queries.go`.
+
+**Frontend (Task 11).** The brand scope belongs to the tab: `frontend/src/brand.js`
+reads `sessionStorage['ext.brand']` once at load (start value from
+`localStorage`), and the axios interceptor in `frontend/src/api/index.js` sends
+`X-Listmonk-Brand` from that in-memory value. Requests that the browser loads
+directly (export links, campaign preview iframe and form) use `brandURL()`
+(`ext_brand` parameter). **After each upstream sync, run
+`bash scripts/brands-frontend-check.sh`; it must print PASS.** A FAIL names a new
+direct `/api/` load that needs `brandURL()`.
+
+Modified upstream frontend files (all `FORK(hcm)`): `src/api/index.js`,
+`src/App.vue`, `src/store/index.js`, `src/router/index.js`,
+`src/components/Navigation.vue`, `src/components/CampaignPreview.vue`,
+`src/views/{ListForm,TemplateForm,Media,Lists,Templates,Subscribers,SubscriberForm}.vue`.
+New: `src/brand.js`, `src/views/settings/Brands.vue`, `scripts/brands-frontend-check.sh`.

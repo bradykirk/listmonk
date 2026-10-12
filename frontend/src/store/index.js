@@ -18,9 +18,17 @@ export default new Vuex.Store({
     // and the response interceptor marks it as false. The model keys are being
     // pre-initialised here to fix "reactivity" issues on first loads.
     loading: Object.keys(models).reduce((obj, cur) => ({ ...obj, [cur]: false }), {}),
+
+    // FORK(hcm): brands from GET /api/ext/brands (snake_case keys).
+    brands: [],
   },
 
   mutations: {
+    // FORK(hcm)
+    setBrands(state, brands) {
+      state.brands = brands;
+    },
+
     // Set data from API responses. `model` is 'lists', 'campaigns' etc.
     setModelResponse(state, { model, data }) {
       state[model] = data;

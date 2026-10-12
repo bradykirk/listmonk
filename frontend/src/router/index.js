@@ -120,6 +120,13 @@ const routes = [
     component: () => import('../views/Settings.vue'),
   },
   {
+    // FORK(hcm)
+    path: '/settings/brands',
+    name: 'brands',
+    meta: { title: 'Brands', group: 'settings' },
+    component: () => import('../views/settings/Brands.vue'),
+  },
+  {
     path: '/settings/logs',
     name: 'logs',
     meta: { title: 'logs.title', group: 'settings' },
