@@ -16,6 +16,7 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/v2"
 	"github.com/knadh/listmonk/internal/auth"
+	"github.com/knadh/listmonk/internal/automations" // FORK(hcm)
 	"github.com/knadh/listmonk/internal/bounce"
 	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/internal/buflog"
@@ -183,6 +184,10 @@ func init() {
 	// FORK(hcm): ext schema must exist before queries that reference it are prepared.
 	if err := brands.Bootstrap(db); err != nil {
 		lo.Fatalf("error bootstrapping brands schema: %v", err)
+	}
+	// FORK(hcm): automations tables (ext schema) before queries are prepared.
+	if err := automations.Bootstrap(db); err != nil {
+		lo.Fatalf("error bootstrapping automations schema: %v", err)
 	}
 	// FORK(hcm): seed before the campaign manager starts, or the send guard
 	// pauses every running campaign on the first deploy.
