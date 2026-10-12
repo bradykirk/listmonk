@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/knadh/listmonk/internal/auth"
+	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/internal/i18n"
 	"github.com/knadh/listmonk/internal/notifs"
 	"github.com/knadh/listmonk/internal/subimporter"
@@ -88,6 +89,18 @@ func (a *App) GetSubscriberActivity(c echo.Context) error {
 	id := getID(c)
 	if err := a.hasSubPerm(user, []int{id}); err != nil {
 		return err
+	}
+
+	// FORK(hcm): in a brand view, return only this brand's activity.
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		if ids == nil {
+			ids = []int{}
+		}
+		var out models.SubscriberActivity
+		if err := a.queries.ExtSubscriberActivity.Get(&out, id, pq.Array(ids)); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		return c.JSON(http.StatusOK, okResp{out})
 	}
 
 	// Fetch the subscriber activity from the DB.
@@ -243,6 +256,13 @@ func (a *App) CreateSubscriber(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
+	// FORK(hcm): in a brand view, every requested list must belong to the brand.
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		if out := brands.ListsOutside(req.Lists, ids); len(out) > 0 {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Lists %v do not belong to the selected brand.", out))
+		}
+	}
+
 	// Filter lists against the current user's permitted lists.
 	listIDs := user.FilterListsByPerm(auth.PermTypeManage, req.Lists)
 
@@ -288,6 +308,13 @@ func (a *App) UpdateSubscriber(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.T("subscribers.invalidName"))
 	}
 
+	// FORK(hcm): in a brand view, every requested list must belong to the brand.
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		if out := brands.ListsOutside(req.Lists, ids); len(out) > 0 {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Lists %v do not belong to the selected brand.", out))
+		}
+	}
+
 	// Filter lists against the current user's permitted lists.
 	listIDs := user.FilterListsByPerm(auth.PermTypeManage, req.Lists)
 
@@ -304,10 +331,25 @@ func (a *App) UpdateSubscriber(c echo.Context) error {
 		return err
 	}
 
+	// FORK(hcm): subscriber status is global. Refuse a change in a brand view.
+	if _, _, ok := brands.BrandFrom(c); ok {
+		cur, err := a.core.GetSubscriber(id, "", "")
+		if err != nil {
+			return err
+		}
+		if brands.StatusChanged(req.Status, cur.Status) {
+			return echo.NewHTTPError(http.StatusBadRequest, "Status change is a global action. Select All brands.")
+		}
+	}
+
 	// Get the user's permitted lists to pass to the update query so that lists on the subscribers
 	// to which they don't have permissions are preserved/left as-is when deleteLists=true.
 	allPerm, permittedLists := user.GetPermittedLists(auth.PermTypeManage)
-	if allPerm {
+	if _, _, ok := brands.BrandFrom(c); ok {
+		// FORK(hcm): the scoped user has no list blanket, so allPerm is false here.
+		// An empty set must not mean "every list".
+		permittedLists = brands.ScopedPermittedLists(permittedLists)
+	} else if allPerm {
 		permittedLists = []int{}
 	}
 
@@ -367,6 +409,19 @@ func (a *App) PatchSubscriber(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.T("subscribers.invalidName"))
 	}
 
+	// FORK(hcm): subscriber status is global. Refuse a change in a brand view.
+	if _, _, ok := brands.BrandFrom(c); ok && brands.StatusChanged(req.Status, sub.Status) {
+		return echo.NewHTTPError(http.StatusBadRequest, "Status change is a global action. Select All brands.")
+	}
+	if req.Lists != nil {
+		// FORK(hcm): in a brand view, every requested list must belong to the brand.
+		if _, ids, ok := brands.BrandFrom(c); ok {
+			if out := brands.ListsOutside(*req.Lists, ids); len(out) > 0 {
+				return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Lists %v do not belong to the selected brand.", out))
+			}
+		}
+	}
+
 	// If lists were explicitly sent, replace the existing subscriptions.
 	overwriteSubs := false
 	var listIDs []int
@@ -379,7 +434,11 @@ func (a *App) PatchSubscriber(c echo.Context) error {
 	}
 
 	allPerm, permittedLists := user.GetPermittedLists(auth.PermTypeManage)
-	if allPerm {
+	if _, _, ok := brands.BrandFrom(c); ok {
+		// FORK(hcm): the scoped user has no list blanket, so allPerm is false here.
+		// An empty set must not mean "every list".
+		permittedLists = brands.ScopedPermittedLists(permittedLists)
+	} else if allPerm {
 		permittedLists = []int{}
 	}
 
@@ -496,6 +555,13 @@ func (a *App) ManageSubscriberLists(c echo.Context) error {
 
 	if err := a.hasSubPerm(user, subIDs); err != nil {
 		return err
+	}
+
+	// FORK(hcm): in a brand view, every requested list must belong to the brand.
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		if out := brands.ListsOutside(req.TargetListIDs, ids); len(out) > 0 {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Lists %v do not belong to the selected brand.", out))
+		}
 	}
 
 	// Filter lists against the current user's permitted lists.
@@ -667,6 +733,13 @@ func (a *App) ManageSubscriberListsByQuery(c echo.Context) error {
 	req.Search = strings.TrimSpace(req.Search)
 	req.Query = formatSQLExp(req.Query)
 
+	// FORK(hcm): in a brand view, every requested list must belong to the brand.
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		if out := brands.ListsOutside(req.TargetListIDs, ids); len(out) > 0 {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Lists %v do not belong to the selected brand.", out))
+		}
+	}
+
 	// Does the user have the subscribers:sql_query permission?
 	if req.Query != "" {
 		if !user.HasPerm(auth.PermSubscribersSqlQuery) {
@@ -731,7 +804,14 @@ func (a *App) ExportSubscriberData(c echo.Context) error {
 		return err
 	}
 
-	_, b, err := a.exportSubscriberData(id, "", a.cfg.Privacy.Exportable)
+	// FORK(hcm): in a brand view, export only this brand's subscriptions and activity.
+	var b []byte
+	var err error
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		b, err = a.exportBrandSubscriberData(id, ids, a.cfg.Privacy.Exportable)
+	} else {
+		_, b, err = a.exportSubscriberData(id, "", a.cfg.Privacy.Exportable)
+	}
 	if err != nil {
 		a.log.Printf("error exporting subscriber data: %s", err)
 		return echo.NewHTTPError(http.StatusInternalServerError,
@@ -755,18 +835,7 @@ func (a *App) exportSubscriberData(id int, subUUID string, exportables map[strin
 	}
 
 	// Filter out the non-exportable items.
-	if _, ok := exportables["profile"]; !ok {
-		data.Profile = nil
-	}
-	if _, ok := exportables["subscriptions"]; !ok {
-		data.Subscriptions = nil
-	}
-	if _, ok := exportables["campaign_views"]; !ok {
-		data.CampaignViews = nil
-	}
-	if _, ok := exportables["link_clicks"]; !ok {
-		data.LinkClicks = nil
-	}
+	filterExportables(&data, exportables) // FORK(hcm): shared with the brand export.
 
 	// Marshal the data into an indented payload.
 	b, err := json.MarshalIndent(data, "", "  ")

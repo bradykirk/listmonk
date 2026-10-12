@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/knadh/listmonk/internal/brands"
+	"github.com/knadh/listmonk/models"
 	"github.com/labstack/echo/v4"
 	"github.com/lib/pq"
 )
@@ -59,4 +61,35 @@ func (a *App) listsInBrand(c echo.Context, listIDs []int) error {
 		}
 	}
 	return nil
+}
+
+// filterExportables drops the items of data that are not in exportables.
+func filterExportables(data *models.SubscriberExportProfile, exportables map[string]bool) {
+	if _, ok := exportables["profile"]; !ok {
+		data.Profile = nil
+	}
+	if _, ok := exportables["subscriptions"]; !ok {
+		data.Subscriptions = nil
+	}
+	if _, ok := exportables["campaign_views"]; !ok {
+		data.CampaignViews = nil
+	}
+	if _, ok := exportables["link_clicks"]; !ok {
+		data.LinkClicks = nil
+	}
+}
+
+// exportBrandSubscriberData is exportSubscriberData limited to one brand's
+// lists and campaigns. The profile is shared and does not change.
+func (a *App) exportBrandSubscriberData(id int, brandListIDs []int, exportables map[string]bool) ([]byte, error) {
+	if brandListIDs == nil {
+		// A nil array is SQL NULL, which would match nothing in ANY() but is unclear; keep it explicit.
+		brandListIDs = []int{}
+	}
+	var data models.SubscriberExportProfile
+	if err := a.queries.ExtExportSubscriberData.Get(&data, id, nil, pq.Array(brandListIDs)); err != nil {
+		return nil, err
+	}
+	filterExportables(&data, exportables)
+	return json.MarshalIndent(data, "", "  ")
 }

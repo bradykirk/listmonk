@@ -1,6 +1,9 @@
 package brands
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 var testBrands = []Brand{
 	{Slug: "ri", ListTags: []string{"ri", "ri-cold"}},
@@ -53,6 +56,42 @@ func TestBrandListIDs(t *testing.T) {
 	tags := map[int][]string{3: {"ri"}, 6: {"ri-cold"}, 17: {"ta"}, 21: {"ri", "ta"}}
 	got := BrandListIDs("ri", tags, testBrands)
 	if len(got) != 2 || got[0] != 3 || got[1] != 6 {
+		t.Fatal(got)
+	}
+}
+
+func TestListsOutsideBrand(t *testing.T) {
+	if got := ListsOutside([]int{2, 5}, []int{2, 3}); !reflect.DeepEqual(got, []int{5}) {
+		t.Fatal(got)
+	}
+	if got := ListsOutside(nil, []int{2}); len(got) != 0 {
+		t.Fatal(got)
+	}
+}
+
+func TestStatusChanged(t *testing.T) {
+	if StatusChanged("", "enabled") {
+		t.Fatal("empty status is no change")
+	}
+	if StatusChanged("enabled", "enabled") {
+		t.Fatal("same status is no change")
+	}
+	if !StatusChanged("blocklisted", "enabled") {
+		t.Fatal("blocklist not detected")
+	}
+	if !StatusChanged("enabled", "blocklisted") {
+		t.Fatal("un-blocklist not detected")
+	}
+}
+
+func TestScopedPermittedListsNeverEmpty(t *testing.T) {
+	if got := ScopedPermittedLists(nil); !reflect.DeepEqual(got, []int{-1}) {
+		t.Fatal(got)
+	}
+	if got := ScopedPermittedLists([]int{}); !reflect.DeepEqual(got, []int{-1}) {
+		t.Fatal(got)
+	}
+	if got := ScopedPermittedLists([]int{2}); !reflect.DeepEqual(got, []int{2}) {
 		t.Fatal(got)
 	}
 }

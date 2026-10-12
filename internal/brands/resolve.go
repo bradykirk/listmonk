@@ -70,3 +70,34 @@ func CampaignBrand(listIDs []int, listTags map[int][]string, brands []Brand) (st
 	}
 	return slug, ""
 }
+
+// ListsOutside returns the IDs in req that are not in brand, in request order.
+func ListsOutside(req, brand []int) []int {
+	in := make(map[int]bool, len(brand))
+	for _, id := range brand {
+		in[id] = true
+	}
+	out := []int{}
+	for _, id := range req {
+		if !in[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// StatusChanged reports whether a scoped update would change the global
+// subscriber status. An empty requested status keeps the current status.
+func StatusChanged(requested, current string) bool {
+	return requested != "" && requested != current
+}
+
+// ScopedPermittedLists returns the $10 argument for update-subscriber-with-lists
+// in a brand view. It never returns an empty slice, because the query reads an
+// empty slice as "every list". {-1} matches no list.
+func ScopedPermittedLists(manageLists []int) []int {
+	if len(manageLists) == 0 {
+		return []int{-1}
+	}
+	return manageLists
+}
