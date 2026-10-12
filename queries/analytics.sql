@@ -281,7 +281,7 @@ SELECT JSON_BUILD_OBJECT(
     'campaigns_90d', (
         SELECT COUNT(*)::int FROM campaigns
         WHERE status = 'finished' AND started_at > NOW() - INTERVAL '90 days'
-          -- FORK(hcm): automation step campaigns are not counted.
+          /* FORK(hcm): automation step campaigns are not counted. */
           AND NOT EXISTS (SELECT 1 FROM ext.automation_steps s WHERE s.campaign_id = campaigns.id)
           AND ($2::INT[] IS NULL OR (
               EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = campaigns.id)
@@ -292,7 +292,7 @@ SELECT JSON_BUILD_OBJECT(
     'sent_90d', (
         SELECT COALESCE(SUM(sent), 0)::int FROM campaigns
         WHERE status = 'finished' AND started_at > NOW() - INTERVAL '90 days'
-          -- FORK(hcm): automation step campaigns are not counted.
+          /* FORK(hcm): automation step campaigns are not counted. */
           AND NOT EXISTS (SELECT 1 FROM ext.automation_steps s WHERE s.campaign_id = campaigns.id)
           AND ($2::INT[] IS NULL OR (
               EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = campaigns.id)

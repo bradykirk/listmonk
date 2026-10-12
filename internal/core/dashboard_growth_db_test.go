@@ -337,6 +337,14 @@ func newTestDB(t *testing.T, dsn, prefix, fixtures string) (*sqlx.DB, *models.Qu
 	if _, err := db.Exec(string(ext)); err != nil {
 		t.Fatalf("install ext schema: %v", err)
 	}
+	// FORK(hcm): the automations tables (ext schema) are referenced by campaign queries too.
+	auto, err := os.ReadFile("../automations/schema.sql")
+	if err != nil {
+		t.Fatalf("read automations schema: %v", err)
+	}
+	if _, err := db.Exec(string(auto)); err != nil {
+		t.Fatalf("install automations schema: %v", err)
+	}
 	if fixtures != "" {
 		if _, err := db.Exec(fixtures); err != nil {
 			t.Fatalf("fixtures: %v", err)

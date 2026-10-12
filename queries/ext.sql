@@ -124,7 +124,7 @@ subs AS (
 ),
 camps AS (
     SELECT c.status, c.sent FROM campaigns c
-    -- FORK(hcm): automation step campaigns are not counted.
+    /* FORK(hcm): automation step campaigns are not counted. */
     WHERE NOT EXISTS (SELECT 1 FROM ext.automation_steps s WHERE s.campaign_id = c.id)
     AND EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = c.id)
     AND NOT EXISTS (

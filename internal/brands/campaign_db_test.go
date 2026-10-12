@@ -12,6 +12,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/knadh/goyesql/v2"
 	goyesqlx "github.com/knadh/goyesql/v2/sqlx"
+	"github.com/knadh/listmonk/internal/automations"
 	"github.com/knadh/listmonk/models"
 	"github.com/lib/pq"
 )
@@ -23,6 +24,10 @@ func campaignTestQueries(t *testing.T, db *sqlx.DB) *models.Queries {
 	// Queries reference the ext schema, as at app startup.
 	if err := Bootstrap(db); err != nil {
 		t.Fatalf("bootstrap: %v", err)
+	}
+	// Campaign and dashboard queries reference the automations tables.
+	if err := automations.Bootstrap(db); err != nil {
+		t.Fatalf("automations bootstrap: %v", err)
 	}
 	files, err := filepath.Glob("../../queries/*.sql")
 	if err != nil || len(files) == 0 {
