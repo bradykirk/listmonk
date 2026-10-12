@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/knadh/listmonk/internal/auth"
+	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/models"
 	"github.com/labstack/echo/v4"
 )
@@ -101,6 +102,19 @@ func (a *App) CreateList(c echo.Context) error {
 	// Validate.
 	if !strHasLen(l.Name, 1, stdInputMaxLen) {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.T("lists.invalidName"))
+	}
+
+	// FORK(hcm): in a brand view the new list always belongs to the selected brand.
+	if b, _, ok := brands.BrandFrom(c); ok {
+		all, err := a.brands.Store.All()
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "error loading brands")
+		}
+		tags, err := brands.ForceBrandTags(l.Tags, b, all)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		l.Tags = tags
 	}
 
 	out, err := a.core.CreateList(l)

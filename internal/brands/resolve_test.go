@@ -95,3 +95,29 @@ func TestScopedPermittedListsNeverEmpty(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestBrandListIDsEmptySlug(t *testing.T) {
+	// Lists with no brand tag must not match an empty slug.
+	tags := map[int][]string{3: {"ri"}, 9: {"unrelated"}, 10: nil}
+	got := BrandListIDs("", tags, testBrands)
+	if got == nil || len(got) != 0 {
+		t.Fatalf("got %#v, want empty non-nil slice", got)
+	}
+}
+
+func TestForceBrandTags(t *testing.T) {
+	ri := testBrands[0]
+	got, err := ForceBrandTags([]string{"promo", "ta", "ri-cold"}, ri, testBrands)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"promo", ri.ListTags[0]}) {
+		t.Fatalf("got %v", got)
+	}
+	if got, _ := ForceBrandTags(nil, ri, testBrands); !reflect.DeepEqual(got, []string{ri.ListTags[0]}) {
+		t.Fatalf("got %v", got)
+	}
+	if _, err := ForceBrandTags(nil, Brand{Slug: "none"}, testBrands); err == nil {
+		t.Fatal("brand without list tags accepted")
+	}
+}

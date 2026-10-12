@@ -61,6 +61,11 @@ func install(lastVer string, db *sqlx.DB, fs stuffbin.FileSystem, prompt, idempo
 		lo.Fatalf("error migrating DB schema: %v", err)
 	}
 
+	// FORK(hcm): schema.sql drops and recreates templates, which drops the
+	// ext.template_brands foreign key. Drop the ext schema so Bootstrap rebuilds it.
+	if _, err := db.Exec("DROP SCHEMA IF EXISTS ext CASCADE"); err != nil {
+		lo.Fatalf("error dropping brands schema: %v", err)
+	}
 	// FORK(hcm): queries reference the ext schema, so create it first.
 	if err := brands.Bootstrap(db); err != nil {
 		lo.Fatalf("error bootstrapping brands schema: %v", err)

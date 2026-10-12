@@ -22,11 +22,20 @@ func (s *Service) loadAll() ([]Brand, map[int][]string, error) {
 
 // GuardCampaign applies all send guard rules to a campaign about to send.
 func (s *Service) GuardCampaign(listIDs []int, messenger, fromEmail string) error {
-	b, t, err := s.loadAll()
+	ruleErr, err := s.guardCampaign(listIDs, messenger, fromEmail)
 	if err != nil {
 		return err
 	}
-	return Check(GuardInput{ListIDs: listIDs, Messenger: messenger, FromEmail: fromEmail}, t, b)
+	return ruleErr
+}
+
+// guardCampaign separates a rule failure (ruleErr) from a lookup error (err).
+func (s *Service) guardCampaign(listIDs []int, messenger, fromEmail string) (ruleErr, err error) {
+	b, t, err := s.loadAll()
+	if err != nil {
+		return nil, err
+	}
+	return Check(GuardInput{ListIDs: listIDs, Messenger: messenger, FromEmail: fromEmail}, t, b), nil
 }
 
 // GuardSender applies the messenger and from-address rules (2-3) for the
@@ -72,12 +81,18 @@ func (g *guardedStore) NextCampaigns(cur, sent []int64) ([]*models.Campaign, err
 			kept = append(kept, c)
 			continue
 		}
+		var ruleErr error
 		ids, err := g.lists(c.ID)
 		if err == nil {
-			err = g.svc.GuardCampaign(ids, c.Messenger, c.FromEmail)
+			ruleErr, err = g.svc.guardCampaign(ids, c.Messenger, c.FromEmail)
 		}
-		if err != nil {
-			g.log.Printf("brands: send guard paused campaign %d (%s): %v", c.ID, c.Name, err)
+		if err != nil || ruleErr != nil {
+			// A lookup error fails closed like a rule failure, but is logged apart.
+			if err != nil {
+				g.log.Printf("brands: send guard lookup error, paused campaign %d (%s): %v", c.ID, c.Name, err)
+			} else {
+				g.log.Printf("brands: send guard paused campaign %d (%s): %v", c.ID, c.Name, ruleErr)
+			}
 			if perr := g.Store.UpdateCampaignStatus(c.ID, models.CampaignStatusPaused); perr != nil {
 				g.log.Printf("brands: error pausing campaign %d: %v", c.ID, perr)
 			}

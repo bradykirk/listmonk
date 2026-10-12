@@ -264,6 +264,10 @@ func (a *App) CreateCampaign(c echo.Context) error {
 	if err := a.listsInBrand(c, o.ListIDs); err != nil {
 		return err
 	}
+	// FORK(hcm): the template, archive template and media must be visible to the brand.
+	if err := a.campaignRefsInBrand(c, o); err != nil {
+		return err
+	}
 
 	// Filter lists against the current user's permitted lists.
 	user := auth.GetUser(c)
@@ -340,6 +344,10 @@ func (a *App) UpdateCampaign(c echo.Context) error {
 
 	// FORK(hcm): every requested list must belong to the selected brand.
 	if err := a.listsInBrand(c, o.ListIDs); err != nil {
+		return err
+	}
+	// FORK(hcm): the template, archive template and media must be visible to the brand.
+	if err := a.campaignRefsInBrand(c, o); err != nil {
 		return err
 	}
 

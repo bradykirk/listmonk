@@ -619,7 +619,11 @@ SQL script.
 **Dry run.** `scripts/brands-dryrun.sql` is one read-only SELECT. Run it with psql on
 production before the deploy. It shows the brand of each list, the brand or `BLOCK`
 reason of each draft, scheduled, running and paused campaign, and the template seed
-owners. Every running or scheduled campaign must show a brand, not `BLOCK`.
+owners. Campaign rows apply all three guard rules: one brand (lists), messenger
+(`BLOCK: messenger`) and from domain (`BLOCK: from domain`, suffix match, empty
+`from_domains` blocks). No running or scheduled campaign may show any `BLOCK`. The
+`privilege` row (`CREATE` on the database) must be `true`, because `Bootstrap` runs
+`CREATE SCHEMA IF NOT EXISTS ext` and the app exits without it.
 
 **Post-sync checklist (after every upstream sync).**
 
@@ -654,10 +658,11 @@ marked lines.
 | File | Change |
 | --- | --- |
 | `cmd/main.go` | Add `brands *brands.Service` to `App`. Bootstrap the `ext` schema and run `SeedInitial` before queries are prepared and before the manager starts. Build the service first so the manager store can use it. |
-| `cmd/install.go` | `brands.Bootstrap(db)` before the install queries, which reference `ext`. |
+| `cmd/install.go` | `DROP SCHEMA IF EXISTS ext CASCADE`, then `brands.Bootstrap(db)`, before the install queries, which reference `ext`. `schema.sql` drops `templates`, which drops the `ext.template_brands` foreign key. |
 | `cmd/init.go` | Wrap the manager store with `brands.WrapManagerStore` (the send guard: messenger, from domain, brand lists). |
 | `cmd/handlers.go` | Add the `X-Listmonk-Brand` CORS header. Add `a.brands.Middleware` after the auth-error check. Register `/api/ext/*` routes. At startup log `unclassified routes` for any `/api` route without a brand class. |
-| `cmd/campaigns.go` | Brand list checks on create and update. Brand filter on query and delete. Send guard before start or schedule and for test send. Brand scope applies even to `*_all` permissions. |
+| `cmd/campaigns.go` | Brand list, template, archive template and media checks on create and update (`campaignRefsInBrand`). Brand filter on query and delete. Send guard before start or schedule and for test send. Brand scope applies even to `*_all` permissions. |
+| `cmd/lists.go` | `CreateList` in a brand view strips all brand tags and adds the selected brand's first list tag (`brands.ForceBrandTags`). |
 | `cmd/subscribers.go` | Brand list checks on all list-taking endpoints. Refuse delete, blocklist and status change in a brand view. `ScopedPermittedLists` returns `{-1}` in a brand view. Brand-filtered activity and export. Opt-in hook mails only brand lists. |
 | `cmd/templates.go` | 404 outside the brand on by-id calls. Brand filter on list. Create with owner in one transaction. |
 | `cmd/media.go` | Brand filter on list. 404 outside the brand on by-id calls. Upload resolves the owner first and inserts media with its owner row. |

@@ -36,6 +36,10 @@ func hasAny(a, b []string) bool {
 
 func BrandListIDs(slug string, listTags map[int][]string, brands []Brand) []int {
 	out := []int{}
+	if slug == "" {
+		// Lists with no brand have an empty slug; an empty brand matches none.
+		return out
+	}
 	for id, tags := range listTags {
 		if lb := BrandOfList(tags, brands); lb.Slug == slug {
 			out = append(out, id)
@@ -100,4 +104,25 @@ func ScopedPermittedLists(manageLists []int) []int {
 		return []int{-1}
 	}
 	return manageLists
+}
+
+// ForceBrandTags returns tags without any brand's list tags, plus the selected
+// brand's first list tag, so a list created in a brand view belongs to it.
+func ForceBrandTags(tags []string, selected Brand, all []Brand) ([]string, error) {
+	if len(selected.ListTags) == 0 {
+		return nil, fmt.Errorf("Brand %s has no list tags.", selected.Slug)
+	}
+	brandTag := map[string]bool{}
+	for _, b := range all {
+		for _, t := range b.ListTags {
+			brandTag[t] = true
+		}
+	}
+	out := []string{}
+	for _, t := range tags {
+		if !brandTag[t] {
+			out = append(out, t)
+		}
+	}
+	return append(out, selected.ListTags[0]), nil
 }

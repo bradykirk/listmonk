@@ -225,5 +225,5 @@ SELECT DISTINCT subscribers.id,
     WHERE subscriber_lists.list_id = ANY($1::INT[]) AND id > $2
     AND (CASE WHEN CARDINALITY($3::INT[]) > 0 THEN id=ANY($3) ELSE true END)
     AND (CASE WHEN $5 != '' THEN name ~* $5 OR email ~* $5 ELSE TRUE END)
-    AND %query%
+    AND (%query%)
     ORDER BY subscribers.id ASC LIMIT (CASE WHEN $6 < 1 THEN NULL ELSE $6 END);

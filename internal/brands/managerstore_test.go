@@ -1,6 +1,7 @@
 package brands
 
 import (
+	"errors"
 	"io"
 	"log"
 	"reflect"
@@ -126,5 +127,29 @@ func TestManagerGuardFirstDeployAndTagChange(t *testing.T) {
 	got, _ = WrapManagerStore(f, svc, listsFn, log.New(io.Discard, "", 0)).NextCampaigns(nil, nil)
 	if len(got) != 0 || f.status[runID] != models.CampaignStatusPaused || f.status[schedID] != models.CampaignStatusPaused {
 		t.Fatalf("retag: got %d, status %v", len(got), f.status)
+	}
+}
+
+func TestManagerGuardLookupErrorHasOwnLogPrefix(t *testing.T) {
+	c := &models.Campaign{Base: models.Base{ID: 5}, Messenger: "email-ri", FromEmail: "a@rangeinsiders.com"}
+	f := &fakeStore{next: []*models.Campaign{c}, status: map[int]string{}}
+	svc := staticService(guardBrands(), guardTags)
+	var buf strings.Builder
+	w := WrapManagerStore(f, svc, func(int) ([]int, error) { return nil, errors.New("db down") }, log.New(&buf, "", 0))
+
+	got, _ := w.NextCampaigns(nil, nil)
+	if len(got) != 0 || f.status[5] != models.CampaignStatusPaused {
+		t.Fatal("lookup error must fail closed and pause")
+	}
+	if !strings.Contains(buf.String(), "send guard lookup error") || strings.Contains(buf.String(), "send guard paused") {
+		t.Fatalf("log: %q", buf.String())
+	}
+
+	// A rule failure keeps the rule prefix.
+	buf.Reset()
+	w = WrapManagerStore(f, svc, func(int) ([]int, error) { return []int{3, 17}, nil }, log.New(&buf, "", 0))
+	w.NextCampaigns(nil, nil)
+	if !strings.Contains(buf.String(), "send guard paused") {
+		t.Fatalf("log: %q", buf.String())
 	}
 }

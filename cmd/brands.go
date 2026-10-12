@@ -113,6 +113,39 @@ func (a *App) templateInBrand(c echo.Context, id int) error {
 	return nil
 }
 
+// campaignRefsInBrand checks the template, archive template and media of a
+// campaign request against the selected brand. It is a no-op for All brands.
+func (a *App) campaignRefsInBrand(c echo.Context, o campReq) error {
+	if _, _, ok := brands.BrandFrom(c); !ok {
+		return nil
+	}
+	check := func(err error) error {
+		if err == nil {
+			return nil
+		}
+		if he, ok := err.(*echo.HTTPError); ok && he.Code == http.StatusNotFound {
+			return echo.NewHTTPError(http.StatusBadRequest, "The template and media must belong to the selected brand.")
+		}
+		return err
+	}
+	if o.TemplateID.Valid && o.TemplateID.Int != 0 {
+		if err := check(a.templateInBrand(c, o.TemplateID.Int)); err != nil {
+			return err
+		}
+	}
+	if o.ArchiveTemplateID.Valid && o.ArchiveTemplateID.Int != 0 {
+		if err := check(a.templateInBrand(c, o.ArchiveTemplateID.Int)); err != nil {
+			return err
+		}
+	}
+	for _, id := range o.MediaIDs {
+		if err := check(a.mediaInBrand(c, id)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // mediaInBrand is templateInBrand for media.
 func (a *App) mediaInBrand(c echo.Context, id int) error {
 	b, _, ok := brands.BrandFrom(c)

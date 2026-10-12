@@ -542,6 +542,34 @@ admin PUT "/api/ext/templates/$TR/brand" '{}';                      expect "PUT 
 admin PUT "/api/ext/templates/$TR/brand" '{"brand":null}';          expect "PUT template brand null (shared) -> 200" 200
 BRAND=ta req GET "/api/templates/$TR";                              expect "ta: GET template now shared -> 200" 200
 
+echo "== final fix: campaign template refs and list ownership in a brand view"
+# TT is a ta template, TS is shared. R1 is an ri list.
+CJ_OK=$(camp_json "tplok-$RUN" "[$R1]" "$FROM_RI" | jq -c --argjson t "$TS" '.template_id = $t')
+BRAND=ri req POST /api/campaigns "$CJ_OK"
+expect "ri: POST campaign with a shared template -> 200" 200
+CT_OK=$(jget .data.id)
+BRAND=ri req POST /api/campaigns "$(printf '%s' "$CJ_OK" | jq -c --argjson t "$TT" '.template_id = $t')"
+expect_msg "ri: POST campaign with a ta template -> 400" 400 "must belong to the selected brand"
+BRAND=ri req POST /api/campaigns "$(printf '%s' "$CJ_OK" | jq -c --argjson t "$TT" '.archive_template_id = $t')"
+expect_msg "ri: POST campaign with a ta archive template -> 400" 400 "must belong to the selected brand"
+BRAND=ri req PUT "/api/campaigns/$CT_OK" "$(printf '%s' "$CJ_OK" | jq -c --argjson t "$TT" '.template_id = $t')"
+expect_msg "ri: PUT campaign with a ta template -> 400" 400 "must belong to the selected brand"
+admin GET "/api/campaigns/$CT_OK"
+jq_ok "campaign keeps the shared template after the refused PUT" '.data.template_id == $t' --argjson t "$TS"
+admin DELETE "/api/campaigns/$CT_OK"
+
+LJ=$(jq -nc --arg n "own-$RUN" '{name:$n, type:"private", optin:"single", tags:["x","ri"]}')
+BRAND=ta req POST /api/lists "$LJ"
+expect "ta: POST list with an ri tag -> 200" 200
+L_OWN=$(jget .data.id)
+jq_ok "ta: new list tags are the ri tag removed and the ta tag added" '(.data.tags | sort) == ["ta","x"]'
+admin DELETE "/api/lists/$L_OWN"
+BRAND=ri req POST /api/lists "$(jq -nc --arg n "own2-$RUN" '{name:$n, type:"private", optin:"single", tags:[]}')"
+expect "ri: POST list with no tags -> 200" 200
+L_OWN=$(jget .data.id)
+jq_ok "ri: new list gets the first ri tag" '.data.tags == ["ri"]'
+admin DELETE "/api/lists/$L_OWN"
+
 # 1x1 PNG
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' | base64 -d > "$TMP/e2e.png" 2>/dev/null \
   || printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==' | base64 -D > "$TMP/e2e.png"
