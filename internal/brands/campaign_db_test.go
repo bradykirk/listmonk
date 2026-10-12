@@ -20,6 +20,10 @@ import (
 // app does at startup, mirroring the derived queries of cmd/init.go.
 func campaignTestQueries(t *testing.T, db *sqlx.DB) *models.Queries {
 	t.Helper()
+	// Queries reference the ext schema, as at app startup.
+	if err := Bootstrap(db); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
 	files, err := filepath.Glob("../../queries/*.sql")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("find query files: %v", err)

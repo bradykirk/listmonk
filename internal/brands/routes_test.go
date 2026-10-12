@@ -60,7 +60,7 @@ func TestRefusalMessages(t *testing.T) {
 }
 
 // Every /api/ route registered in cmd/handlers.go must be classified, and
-// every non-ext entry in Routes must still be registered there.
+// every entry in Routes must still be registered there.
 func TestRoutesCoverHandlers(t *testing.T) {
 	src, err := os.ReadFile("../../cmd/handlers.go")
 	if err != nil {
@@ -84,10 +84,6 @@ func TestRoutesCoverHandlers(t *testing.T) {
 		}
 	}
 	for k := range Routes {
-		_, p := split(k)
-		if strings.HasPrefix(p, "/api/ext/") {
-			continue
-		}
 		if !registered[k] {
 			t.Errorf("Routes has an entry not registered in handlers.go: %s", k)
 		}

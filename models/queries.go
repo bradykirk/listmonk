@@ -81,6 +81,8 @@ type Queries struct {
 	ExtCampaignListIDs      *sqlx.Stmt `query:"ext-campaign-list-ids"`      // FORK(hcm)
 	ExtSubscriberActivity   *sqlx.Stmt `query:"ext-subscriber-activity"`    // FORK(hcm)
 	ExtExportSubscriberData *sqlx.Stmt `query:"ext-export-subscriber-data"` // FORK(hcm)
+	ExtDashboardCounts      *sqlx.Stmt `query:"ext-dashboard-counts"`       // FORK(hcm)
+	ExtDashboardCharts      *sqlx.Stmt `query:"ext-dashboard-charts"`       // FORK(hcm)
 
 	// These two queries are read as strings and based on settings.individual_tracking=on/off,
 	// are interpolated and copied to view and click counts. Same query, different tables.

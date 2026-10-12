@@ -22,7 +22,7 @@ func (a *App) GetDashboardGrowth(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	out, err := a.core.GetDashboardGrowth(tz, r, time.Now())
+	out, err := a.core.GetDashboardGrowth(tz, r, time.Now(), brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}

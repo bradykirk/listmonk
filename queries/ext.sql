@@ -109,3 +109,91 @@ SELECT (SELECT email FROM prof) as email,
         COALESCE((SELECT JSON_AGG(t) FROM subs t), '[]') AS subscriptions,
         COALESCE((SELECT JSON_AGG(t) FROM views t), '[]') AS campaign_views,
         COALESCE((SELECT JSON_AGG(t) FROM clicks t), '[]') AS link_clicks;
+
+-- name: ext-dashboard-counts
+-- FORK(hcm): mat_dashboard_counts (schema.sql) computed live for one brand, with the same JSON shape.
+-- $1 = brand list IDs ('{}' matches nothing). Subscribers are those on a brand list; campaigns are brand
+-- campaigns (all lists in the brand). An orphan has no list, so it belongs to no brand and the count is 0.
+WITH members AS (
+    SELECT DISTINCT subscriber_id FROM subscriber_lists WHERE list_id = ANY($1::INT[])
+),
+subs AS (
+    SELECT COUNT(*) AS num, s.status FROM subscribers s
+    JOIN members m ON m.subscriber_id = s.id
+    GROUP BY s.status
+),
+camps AS (
+    SELECT c.status, c.sent FROM campaigns c
+    WHERE EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = c.id)
+    AND NOT EXISTS (
+        SELECT 1 FROM campaign_lists x
+        WHERE x.campaign_id = c.id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($1::INT[])))
+    )
+)
+SELECT JSON_BUILD_OBJECT(
+    'subscribers', JSON_BUILD_OBJECT(
+        'total', (SELECT SUM(num) FROM subs),
+        'blocklisted', (SELECT num FROM subs WHERE status='blocklisted'),
+        'orphans', 0
+    ),
+    'lists', JSON_BUILD_OBJECT(
+        'total', (SELECT COUNT(*) FROM lists WHERE id = ANY($1::INT[])),
+        'private', (SELECT COUNT(*) FROM lists WHERE id = ANY($1::INT[]) AND type='private'),
+        'public', (SELECT COUNT(*) FROM lists WHERE id = ANY($1::INT[]) AND type='public'),
+        'optin_single', (SELECT COUNT(*) FROM lists WHERE id = ANY($1::INT[]) AND optin='single'),
+        'optin_double', (SELECT COUNT(*) FROM lists WHERE id = ANY($1::INT[]) AND optin='double')
+    ),
+    'campaigns', JSON_BUILD_OBJECT(
+        'total', (SELECT COUNT(*) FROM camps),
+        'by_status', (
+            SELECT JSON_OBJECT_AGG (status, num) FROM
+            (SELECT status, COUNT(*) AS num FROM camps GROUP BY status) r
+        )
+    ),
+    'messages', (SELECT SUM(sent) AS messages FROM camps)
+) AS data;
+
+-- name: ext-dashboard-charts
+-- FORK(hcm): mat_dashboard_charts (schema.sql) computed live for one brand, with the same JSON shape.
+-- $1 = brand list IDs ('{}' matches nothing). Only views and clicks of brand campaigns count.
+WITH bc AS (
+    SELECT c.id FROM campaigns c
+    WHERE EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = c.id)
+    AND NOT EXISTS (
+        SELECT 1 FROM campaign_lists x
+        WHERE x.campaign_id = c.id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($1::INT[])))
+    )
+),
+clicks AS (
+    SELECT JSON_AGG(ROW_TO_JSON(row))
+    FROM (
+        WITH viewDates AS (
+          SELECT created_at::DATE AS to_date,
+                 created_at::DATE - INTERVAL '30 DAY' AS from_date
+                 FROM link_clicks WHERE campaign_id IN (SELECT id FROM bc) ORDER BY id DESC LIMIT 1
+        )
+        SELECT COUNT(*) AS count, created_at::DATE as date FROM link_clicks
+          WHERE campaign_id IN (SELECT id FROM bc)
+            AND created_at >= (SELECT from_date FROM viewDates)
+            AND created_at < (SELECT to_date FROM viewDates) + INTERVAL '1 day'
+          GROUP by date ORDER BY date
+    ) row
+),
+views AS (
+    SELECT JSON_AGG(ROW_TO_JSON(row))
+    FROM (
+        WITH viewDates AS (
+          SELECT created_at::DATE AS to_date,
+                 created_at::DATE - INTERVAL '30 DAY' AS from_date
+                 FROM campaign_views WHERE campaign_id IN (SELECT id FROM bc) ORDER BY id DESC LIMIT 1
+        )
+        SELECT COUNT(*) AS count, created_at::DATE as date FROM campaign_views
+          WHERE campaign_id IN (SELECT id FROM bc)
+            AND created_at >= (SELECT from_date FROM viewDates)
+            AND created_at < (SELECT to_date FROM viewDates) + INTERVAL '1 day'
+          GROUP by date ORDER BY date
+    ) row
+)
+SELECT JSON_BUILD_OBJECT('link_clicks', COALESCE((SELECT * FROM clicks), '[]'),
+                         'campaign_views', COALESCE((SELECT * FROM views), '[]')
+                        ) AS data;

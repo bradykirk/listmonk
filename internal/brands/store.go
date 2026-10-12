@@ -94,6 +94,8 @@ func (s *Store) Get(slug string) (Brand, bool, error) {
 }
 
 func (s *Store) Upsert(b Brand) error {
+	// The array columns are NOT NULL; a nil slice binds as NULL.
+	normalize(&b)
 	_, err := s.db.Exec(`
 		INSERT INTO ext.brands (slug, name, list_tags, messengers, from_domains, sort_order)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -171,4 +173,28 @@ func (s *Store) TemplateOwners() (map[int]*string, error) {
 
 func (s *Store) MediaOwners() (map[int]*string, error) {
 	return s.owners(`SELECT media_id AS id, brand_slug FROM ext.media_brands`)
+}
+
+// TemplateVisible reports whether template id shows in brand slug: it is the
+// brand's own or shared. An unassigned template shows only in All brands.
+func (s *Store) TemplateVisible(id int, slug string) (bool, error) {
+	var ok bool
+	err := s.db.Get(&ok, `SELECT EXISTS (SELECT 1 FROM ext.template_brands
+		WHERE template_id = $1 AND (brand_slug IS NULL OR brand_slug = $2))`, id, slug)
+	return ok, err
+}
+
+// MediaVisible is TemplateVisible for media.
+func (s *Store) MediaVisible(id int, slug string) (bool, error) {
+	var ok bool
+	err := s.db.Get(&ok, `SELECT EXISTS (SELECT 1 FROM ext.media_brands
+		WHERE media_id = $1 AND (brand_slug IS NULL OR brand_slug = $2))`, id, slug)
+	return ok, err
+}
+
+// Visible reports whether item id shows in brand slug, given the owners map
+// of TemplateOwners or MediaOwners: the brand's own or shared (nil owner).
+func Visible(owners map[int]*string, slug string, id int) bool {
+	o, ok := owners[id]
+	return ok && (o == nil || *o == slug)
 }

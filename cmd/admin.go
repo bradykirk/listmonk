@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/internal/captcha"
 	"github.com/labstack/echo/v4"
 	null "gopkg.in/volatiletech/null.v6"
@@ -99,6 +100,15 @@ func (a *App) GetServerConfig(c echo.Context) error {
 
 // GetDashboardCharts returns chart data points to render ont he dashboard.
 func (a *App) GetDashboardCharts(c echo.Context) error {
+	// FORK(hcm): a brand view computes the charts live for the brand.
+	if _, _, ok := brands.BrandFrom(c); ok {
+		out, err := a.core.GetBrandDashboardCharts(brandListsOrNil(c))
+		if err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, okResp{out})
+	}
+
 	// Get the chart data from the DB.
 	out, err := a.core.GetDashboardCharts()
 	if err != nil {
@@ -110,6 +120,15 @@ func (a *App) GetDashboardCharts(c echo.Context) error {
 
 // GetDashboardCounts returns stats counts to show on the dashboard.
 func (a *App) GetDashboardCounts(c echo.Context) error {
+	// FORK(hcm): a brand view computes the counts live for the brand.
+	if _, _, ok := brands.BrandFrom(c); ok {
+		out, err := a.core.GetBrandDashboardCounts(brandListsOrNil(c))
+		if err != nil {
+			return err
+		}
+		return c.JSON(http.StatusOK, okResp{out})
+	}
+
 	// Get the chart data from the DB.
 	out, err := a.core.GetDashboardCounts()
 	if err != nil {

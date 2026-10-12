@@ -135,7 +135,7 @@ func TestDashboardGrowthSQL(t *testing.T) {
 		t.Helper()
 
 		var raw []byte
-		if err := q.GetDashboardGrowth.Get(&raw, tz, r.Buckets, r.Unit, growthNow, r.Label); err != nil {
+		if err := q.GetDashboardGrowth.Get(&raw, tz, r.Buckets, r.Unit, growthNow, r.Label, nil); err != nil {
 			t.Fatalf("get-dashboard-growth(%s, %s): %v", tz, r.Label, err)
 		}
 
@@ -328,6 +328,14 @@ func newTestDB(t *testing.T, dsn, prefix, fixtures string) (*sqlx.DB, *models.Qu
 	}
 	if _, err := db.Exec(string(schema)); err != nil {
 		t.Fatalf("install schema: %v", err)
+	}
+	// FORK(hcm): queries reference the ext schema, which the app creates at startup.
+	ext, err := os.ReadFile("../brands/schema.sql")
+	if err != nil {
+		t.Fatalf("read ext schema: %v", err)
+	}
+	if _, err := db.Exec(string(ext)); err != nil {
+		t.Fatalf("install ext schema: %v", err)
 	}
 	if fixtures != "" {
 		if _, err := db.Exec(fixtures); err != nil {

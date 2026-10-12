@@ -70,9 +70,10 @@ func ParseGrowthTZ(s string) (string, error) {
 
 // GetDashboardGrowth returns signups, unsubscribes and audience size per bucket
 // of the given range, with day boundaries in the tz time zone.
-func (c *Core) GetDashboardGrowth(tz string, r GrowthRange, now time.Time) (types.JSONText, error) {
+// FORK(hcm): brandLists (nil = all brands) limits it to brand lists and campaigns.
+func (c *Core) GetDashboardGrowth(tz string, r GrowthRange, now time.Time, brandLists []int) (types.JSONText, error) {
 	var out types.JSONText
-	if err := c.q.GetDashboardGrowth.Get(&out, tz, r.Buckets, r.Unit, now, r.Label); err != nil {
+	if err := c.q.GetDashboardGrowth.Get(&out, tz, r.Buckets, r.Unit, now, r.Label, brandArg(brandLists)); err != nil { // FORK(hcm): brand
 		// Go and Postgres ship separate time zone databases. A name that Go
 		// accepts but Postgres does not is bad input, not a server fault.
 		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "22023" {

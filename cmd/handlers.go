@@ -203,6 +203,15 @@ func initHTTPHandlers(e *echo.Echo, a *App) {
 		g.PUT("/api/templates/:id/default", pm(hasID(a.TemplateSetDefault), "templates:manage"))
 		g.DELETE("/api/templates/:id", pm(hasID(a.DeleteTemplate), "templates:manage"))
 
+		// FORK(hcm): brand admin API (all Global in internal/brands/routes.go).
+		g.GET("/api/ext/brands", pm(a.GetBrands, "settings:get"))
+		g.POST("/api/ext/brands", pm(a.CreateBrand, "settings:manage"))
+		g.PUT("/api/ext/brands/:slug", pm(a.UpdateBrand, "settings:manage"))
+		g.DELETE("/api/ext/brands/:slug", pm(a.DeleteBrand, "settings:manage"))
+		g.PUT("/api/ext/templates/:id/brand", pm(hasID(a.SetTemplateBrand), "templates:manage"))
+		g.PUT("/api/ext/media/:id/brand", pm(hasID(a.SetMediaBrand), "media:manage"))
+		g.GET("/api/ext/ownership", pm(a.GetOwnership, "templates:get"))
+
 		g.DELETE("/api/maintenance/subscribers/:type", pm(a.GCSubscribers, "settings:maintain"))
 		g.DELETE("/api/maintenance/analytics/:type", pm(a.GCCampaignAnalytics, "settings:maintain"))
 		g.GET("/api/maintenance/analytics/:type/export", pm(a.ExportCampaignAnalytics, "settings:maintain"))

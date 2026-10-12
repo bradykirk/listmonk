@@ -591,3 +591,30 @@ all system mail fail.
 | `docker-compose.gunmade.yml` | `LISTMONK_EMAIL_DEFAULT: ${LISTMONK_EMAIL_DEFAULT:-}` | Re-add. |
 
 **Tests.** `go test ./internal/messenger/email/` (no database needed).
+
+## Brands (hcm branch)
+
+Brand scope for lists, campaigns, templates, media, bounces, dashboard and
+analytics. Spec: `docs/superpowers/specs/2026-10-11-brands-design.md`. Every
+changed upstream line carries a `FORK(hcm)` comment. This section is completed
+in Task 12; the entries below are from Task 9.
+
+**Atomic create with ownership.** A new template or media file and its
+`ext.template_brands` / `ext.media_brands` row are written in one transaction
+(`internal/core/brand_create.go`), so a failed ownership insert leaves no
+unassigned row. The owner comes from `createOwner` in `cmd/brands.go`: the
+selected brand in a brand view; in All brands the optional `?brand=<slug>` or
+`?brand=shared`; absent = no row (unassigned); unknown = `400 unknown brand`.
+
+| Modified file | Change | If it conflicts |
+| --- | --- | --- |
+| `cmd/templates.go` | `CreateTemplate`: `a.core.CreateTemplate(...)` replaced by `a.createOwner(c)` + `a.core.CreateTemplateOwned(..., owner, assign)`. | Keep upstream's validation and compile; replace only the create call. |
+| `cmd/media.go` | `UploadMedia`: `a.createOwner(c)` runs first, before the file is read or uploaded; `a.core.InsertMedia(...)` replaced by `a.core.InsertMediaOwned(..., owner, assign)`. Its error branch keeps `cleanUp = true`, so the stored file and thumbnail are deleted. | Keep the owner call at the top and the cleanup on insert error. |
+
+Task 9 also touched these upstream files (brand filters, all `FORK(hcm)`):
+`cmd/templates.go` (by-id 404, list filter), `cmd/media.go` (list filter,
+by-id 404), `cmd/bounce.go`, `cmd/admin.go` (dashboard counts/charts),
+`cmd/handlers.go` (`/api/ext/*` routes), `internal/core/media.go`,
+`internal/core/bounces.go`, `internal/core/dashboard.go`, `queries/media.sql`
+(`query-media` `$5`), `queries/bounces.sql` (`query-bounces` `$7`,
+`delete-bounces` `$3`), `models/queries.go`.

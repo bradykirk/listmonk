@@ -7,6 +7,7 @@
 
 -- name: get-analytics-growth
 -- Weekly joins and the running total, for the audience growth chart.
+-- FORK(hcm): brand scope: $2 = brand list IDs, NULL = all brands.
 -- The running total is computed in an outer query. Putting the window function
 -- alongside the GROUP BY makes Postgres reject the ORDER BY as ungrouped.
 SELECT COALESCE(JSON_AGG(t ORDER BY t.week), '[]') FROM (
@@ -22,12 +23,14 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.week), '[]') FROM (
             (COUNT(*) FILTER (WHERE sl.status = 'unsubscribed'))::int           AS unsubscribed
         FROM subscriber_lists sl
         WHERE ($1 = 0 OR sl.list_id = $1)
+          AND ($2::INT[] IS NULL OR sl.list_id = ANY($2::INT[]))
         GROUP BY 1
     ) w
 ) t;
 
 
 -- name: get-analytics-campaigns
+-- FORK(hcm): brand scope: $1 = brand list IDs, NULL = all brands.
 -- Per-campaign opens, clicks, bounces and unsubscribes. Rates are computed in
 -- the frontend so that a zero send count cannot divide by zero here.
 --
@@ -70,6 +73,11 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.started_at DESC NULLS LAST), '[]') FROM (
     FROM campaigns c
     LEFT JOIN campaign_views v ON v.campaign_id = c.id
     WHERE c.status = 'finished'
+      AND ($1::INT[] IS NULL OR (
+          EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+          AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+              WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($1::INT[]))))
+      ))
     GROUP BY c.id
     ORDER BY c.started_at DESC NULLS LAST
     LIMIT 50
@@ -77,6 +85,8 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.started_at DESC NULLS LAST), '[]') FROM (
 
 
 -- name: get-analytics-cohorts
+-- FORK(hcm): brand scope: $2 = brand list IDs, NULL = all brands. In a brand
+-- view, members are on brand lists and activity is from brand campaigns.
 -- How much of the list still engages. This is the number that decides whether
 -- a sunset policy is worth running.
 --
@@ -89,14 +99,25 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.cohort), '[]') FROM (
         FROM subscriber_lists sl
         WHERE sl.status <> 'unsubscribed'
           AND ($1 = 0 OR sl.list_id = $1)
+          AND ($2::INT[] IS NULL OR sl.list_id = ANY($2::INT[]))
     ),
     activity AS (
         SELECT m.id,
                GREATEST(
                    COALESCE((SELECT MAX(created_at) FROM campaign_views
-                              WHERE subscriber_id = m.id), 'epoch'::timestamptz),
+                              WHERE subscriber_id = m.id
+                                AND ($2::INT[] IS NULL OR (
+                                    EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = campaign_views.campaign_id)
+                                    AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                                        WHERE bcl.campaign_id = campaign_views.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+                                ))), 'epoch'::timestamptz),
                    COALESCE((SELECT MAX(created_at) FROM link_clicks
-                              WHERE subscriber_id = m.id), 'epoch'::timestamptz)
+                              WHERE subscriber_id = m.id
+                                AND ($2::INT[] IS NULL OR (
+                                    EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = link_clicks.campaign_id)
+                                    AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                                        WHERE bcl.campaign_id = link_clicks.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+                                ))), 'epoch'::timestamptz)
                ) AS last_seen
         FROM members m
         JOIN subscribers s ON s.id = m.id AND s.status = 'enabled'
@@ -119,6 +140,7 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.cohort), '[]') FROM (
 -- Opens and clicks per hour for the first 48 hours after a campaign started.
 -- generate_series supplies every bucket so the chart has no gaps.
 -- $1: campaign ID.
+-- FORK(hcm): brand scope: $2 = brand list IDs, NULL = all brands.
 SELECT COALESCE(JSON_AGG(t ORDER BY t.hour), '[]') FROM (
     SELECT h.hour,
            COALESCE(v.opens, 0)  AS opens,
@@ -130,6 +152,11 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.hour), '[]') FROM (
         FROM campaign_views cv
         JOIN campaigns c ON c.id = cv.campaign_id
         WHERE cv.campaign_id = $1
+          AND ($2::INT[] IS NULL OR (
+              EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+              AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                  WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+          ))
         GROUP BY 1
     ) v ON v.hour = h.hour
     LEFT JOIN (
@@ -138,6 +165,11 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.hour), '[]') FROM (
         FROM link_clicks lc
         JOIN campaigns c ON c.id = lc.campaign_id
         WHERE lc.campaign_id = $1
+          AND ($2::INT[] IS NULL OR (
+              EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+              AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                  WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+          ))
         GROUP BY 1
     ) l ON l.hour = h.hour
 ) t;
@@ -146,6 +178,7 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.hour), '[]') FROM (
 -- name: get-analytics-campaign-links
 -- Top links for one campaign, with total and unique click counts.
 -- $1: campaign ID.
+-- FORK(hcm): brand scope: $2 = brand list IDs, NULL = all brands.
 SELECT COALESCE(JSON_AGG(t ORDER BY t.clicks DESC), '[]') FROM (
     SELECT l.url,
            COUNT(*)::int                          AS clicks,
@@ -153,6 +186,11 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.clicks DESC), '[]') FROM (
     FROM link_clicks lc
     JOIN links l ON l.id = lc.link_id
     WHERE lc.campaign_id = $1
+      AND ($2::INT[] IS NULL OR (
+          EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = lc.campaign_id)
+          AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+              WHERE bcl.campaign_id = lc.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+      ))
     GROUP BY l.url
     ORDER BY 2 DESC
     LIMIT 20
@@ -168,6 +206,7 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.clicks DESC), '[]') FROM (
 -- off this returns nothing, and that is correct.
 --
 -- $1: campaign ID, or 0 for every campaign.
+-- FORK(hcm): brand scope: $2 = brand list IDs, NULL = all brands.
 SELECT COALESCE(JSON_AGG(t ORDER BY t.created_at DESC), '[]') FROM (
     SELECT u.email, u.subscriber_id, u.action, u.created_at, u.campaign
     FROM (
@@ -177,6 +216,11 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.created_at DESC), '[]') FROM (
         JOIN subscribers s ON s.id = v.subscriber_id
         JOIN campaigns c   ON c.id = v.campaign_id
         WHERE ($1 = 0 OR v.campaign_id = $1)
+          AND ($2::INT[] IS NULL OR (
+              EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+              AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                  WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+          ))
 
         UNION ALL
 
@@ -185,6 +229,11 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.created_at DESC), '[]') FROM (
         JOIN subscribers s ON s.id = lc.subscriber_id
         JOIN campaigns c   ON c.id = lc.campaign_id
         WHERE ($1 = 0 OR lc.campaign_id = $1)
+          AND ($2::INT[] IS NULL OR (
+              EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+              AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                  WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+          ))
     ) u
     ORDER BY u.created_at DESC
     LIMIT 50
@@ -193,6 +242,9 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.created_at DESC), '[]') FROM (
 
 -- name: get-analytics-summary
 -- The headline numbers, as one JSON object.
+-- FORK(hcm): brand scope: $2 = brand list IDs, NULL = all brands.
+-- In a brand view, audience counts use brand lists and campaign rates use
+-- brand campaigns.
 --
 -- Audience counts respect the list filter ($1). Campaign rates do not: a
 -- campaign is sent to a set of lists, so attributing its opens to one list
@@ -209,12 +261,14 @@ SELECT JSON_BUILD_OBJECT(
         WHERE s.status = 'enabled'
           AND sl.status <> 'unsubscribed'
           AND ($1 = 0 OR sl.list_id = $1)
+          AND ($2::INT[] IS NULL OR sl.list_id = ANY($2::INT[]))
     ),
     'joined_30d', (
         SELECT COUNT(DISTINCT sl.subscriber_id)::int
         FROM subscriber_lists sl
         WHERE sl.created_at > NOW() - INTERVAL '30 days'
           AND ($1 = 0 OR sl.list_id = $1)
+          AND ($2::INT[] IS NULL OR sl.list_id = ANY($2::INT[]))
     ),
     'unsubscribed_30d', (
         SELECT COUNT(DISTINCT sl.subscriber_id)::int
@@ -222,14 +276,25 @@ SELECT JSON_BUILD_OBJECT(
         WHERE sl.status = 'unsubscribed'
           AND sl.updated_at > NOW() - INTERVAL '30 days'
           AND ($1 = 0 OR sl.list_id = $1)
+          AND ($2::INT[] IS NULL OR sl.list_id = ANY($2::INT[]))
     ),
     'campaigns_90d', (
         SELECT COUNT(*)::int FROM campaigns
         WHERE status = 'finished' AND started_at > NOW() - INTERVAL '90 days'
+          AND ($2::INT[] IS NULL OR (
+              EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = campaigns.id)
+              AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                  WHERE bcl.campaign_id = campaigns.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+          ))
     ),
     'sent_90d', (
         SELECT COALESCE(SUM(sent), 0)::int FROM campaigns
         WHERE status = 'finished' AND started_at > NOW() - INTERVAL '90 days'
+          AND ($2::INT[] IS NULL OR (
+              EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = campaigns.id)
+              AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                  WHERE bcl.campaign_id = campaigns.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+          ))
     ),
     'opens_90d', (
         SELECT COALESCE(SUM(n), 0)::int FROM (
@@ -237,6 +302,11 @@ SELECT JSON_BUILD_OBJECT(
             FROM campaign_views cv
             JOIN campaigns c ON c.id = cv.campaign_id
             WHERE c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+            AND ($2::INT[] IS NULL OR (
+                EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+                AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                    WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+            ))
             GROUP BY cv.campaign_id
         ) x
     ),
@@ -246,6 +316,11 @@ SELECT JSON_BUILD_OBJECT(
             FROM link_clicks lc
             JOIN campaigns c ON c.id = lc.campaign_id
             WHERE c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+            AND ($2::INT[] IS NULL OR (
+                EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+                AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                    WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+            ))
             GROUP BY lc.campaign_id
         ) x
     ),
@@ -254,12 +329,22 @@ SELECT JSON_BUILD_OBJECT(
         JOIN campaigns c ON c.id = b.campaign_id
         WHERE b.type <> 'complaint'
           AND c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+            AND ($2::INT[] IS NULL OR (
+                EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+                AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                    WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+            ))
     ),
     'complaints_90d', (
         SELECT COUNT(*)::int FROM bounces b
         JOIN campaigns c ON c.id = b.campaign_id
         WHERE b.type = 'complaint'
           AND c.status = 'finished' AND c.started_at > NOW() - INTERVAL '90 days'
+            AND ($2::INT[] IS NULL OR (
+                EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+                AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                    WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+            ))
     )
 );
 
@@ -277,6 +362,8 @@ SELECT JSON_BUILD_OBJECT(
 -- All three are indexed on subscriber_id.
 --
 -- $1: list ID, or 0 for every list.
+-- FORK(hcm): brand scope: $2 = brand list IDs, NULL = all brands. In a brand
+-- view, members are on brand lists and engagement is from brand campaigns.
 SELECT COALESCE(JSON_AGG(t ORDER BY t.subscribers DESC), '[]') FROM (
     WITH members AS (
         SELECT DISTINCT s.id, LOWER(SPLIT_PART(s.email, '@', 2)) AS domain
@@ -284,16 +371,32 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.subscribers DESC), '[]') FROM (
         JOIN subscriber_lists sl ON sl.subscriber_id = s.id
         WHERE sl.status <> 'unsubscribed'
           AND ($1 = 0 OR sl.list_id = $1)
+          AND ($2::INT[] IS NULL OR sl.list_id = ANY($2::INT[]))
     )
     SELECT
         m.domain,
         COUNT(*)::int AS subscribers,
         COUNT(*) FILTER (WHERE EXISTS (
-            SELECT 1 FROM campaign_views cv WHERE cv.subscriber_id = m.id))::int AS openers,
+            SELECT 1 FROM campaign_views cv WHERE cv.subscriber_id = m.id
+            AND ($2::INT[] IS NULL OR (
+                EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = cv.campaign_id)
+                AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                    WHERE bcl.campaign_id = cv.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+            ))))::int AS openers,
         COUNT(*) FILTER (WHERE EXISTS (
-            SELECT 1 FROM link_clicks lc WHERE lc.subscriber_id = m.id))::int    AS clickers,
+            SELECT 1 FROM link_clicks lc WHERE lc.subscriber_id = m.id
+            AND ($2::INT[] IS NULL OR (
+                EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = lc.campaign_id)
+                AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                    WHERE bcl.campaign_id = lc.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+            ))))::int AS clickers,
         COUNT(*) FILTER (WHERE EXISTS (
-            SELECT 1 FROM bounces b WHERE b.subscriber_id = m.id))::int          AS bounced
+            SELECT 1 FROM bounces b WHERE b.subscriber_id = m.id
+            AND (b.campaign_id IS NULL OR ($2::INT[] IS NULL OR (
+                EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = b.campaign_id)
+                AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+                    WHERE bcl.campaign_id = b.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($2::INT[]))))
+            )))))::int AS bounced
     FROM members m
     GROUP BY m.domain
     ORDER BY 2 DESC
@@ -303,6 +406,7 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.subscribers DESC), '[]') FROM (
 
 -- name: get-analytics-send-times
 -- Open rate by the weekday and hour a campaign was sent.
+-- FORK(hcm): brand scope: $1 = brand list IDs, NULL = all brands.
 --
 -- Timestamps are read in the database's timezone, not the recipient's. With one
 -- sender and a mostly US audience that is the useful reading anyway; treat it
@@ -323,6 +427,11 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.dow, t.hour), '[]') FROM (
     FROM campaigns c
     WHERE c.status = 'finished'
       AND c.started_at IS NOT NULL
+      AND ($1::INT[] IS NULL OR (
+          EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = c.id)
+          AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+              WHERE bcl.campaign_id = c.id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($1::INT[]))))
+      ))
     GROUP BY 1, 2
 ) t;
 
@@ -333,6 +442,9 @@ SELECT COALESCE(JSON_AGG(t ORDER BY t.dow, t.hour), '[]') FROM (
 --
 -- $1 IANA time zone of the viewer, $2 number of buckets, $3 'day' or 'week',
 -- $4 the current time, $5 the range label (echoed back).
+-- FORK(hcm): brand scope: $6 = brand list IDs, NULL = all brands. In a brand
+-- view, only brand list subscriptions, brand campaign unsubscribes, and
+-- bounces from brand campaigns (or with no campaign) count.
 --
 -- Counting rules:
 -- * A person is a subscriber with at least one list subscription. Each person
@@ -374,17 +486,28 @@ subs AS (
         BOOL_OR(status <> 'unsubscribed')                        AS has_active,
         MAX(updated_at) FILTER (WHERE status = 'unsubscribed')   AS unsub_at
     FROM subscriber_lists
+    WHERE ($6::INT[] IS NULL OR list_id = ANY($6::INT[]))
     GROUP BY subscriber_id
 ),
 cu AS (
     SELECT subscriber_id, MAX(created_at) AS at
     FROM campaign_unsubs
     WHERE subscriber_id IS NOT NULL
+      AND ($6::INT[] IS NULL OR (
+          EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = campaign_unsubs.campaign_id)
+          AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+              WHERE bcl.campaign_id = campaign_unsubs.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($6::INT[]))))
+      ))
     GROUP BY subscriber_id
 ),
 bo AS (
     SELECT subscriber_id, MAX(created_at) AS at
     FROM bounces
+    WHERE (campaign_id IS NULL OR ($6::INT[] IS NULL OR (
+        EXISTS (SELECT 1 FROM campaign_lists bcl WHERE bcl.campaign_id = bounces.campaign_id)
+        AND NOT EXISTS (SELECT 1 FROM campaign_lists bcl
+            WHERE bcl.campaign_id = bounces.campaign_id AND (bcl.list_id IS NULL OR NOT (bcl.list_id = ANY($6::INT[]))))
+    )))
     GROUP BY subscriber_id
 ),
 people AS (

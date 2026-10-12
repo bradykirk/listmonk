@@ -4,7 +4,10 @@ INSERT INTO media (uuid, filename, thumb, content_type, provider, meta, created_
 
 -- name: query-media
 SELECT COUNT(*) OVER () AS total, * FROM media
-    WHERE ($1 = '' OR filename ILIKE $1) AND provider=$2 ORDER BY created_at DESC OFFSET $3 LIMIT $4;
+    WHERE ($1 = '' OR filename ILIKE $1) AND provider=$2
+    -- FORK(hcm): brand scope. $5 = brand slug, NULL = all brands. Shows the brand's media and shared media.
+    AND ($5::TEXT IS NULL OR EXISTS (SELECT 1 FROM ext.media_brands mb WHERE mb.media_id = media.id AND (mb.brand_slug = $5 OR mb.brand_slug IS NULL)))
+    ORDER BY created_at DESC OFFSET $3 LIMIT $4;
 
 -- name: get-media
 SELECT * FROM media WHERE

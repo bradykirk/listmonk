@@ -24,6 +24,12 @@ var (
 
 // UploadMedia handles media file uploads.
 func (a *App) UploadMedia(c echo.Context) error {
+	// FORK(hcm): resolve the brand owner first, so a bad brand uploads nothing.
+	owner, assign, err := a.createOwner(c)
+	if err != nil {
+		return err
+	}
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest,
@@ -130,7 +136,8 @@ func (a *App) UploadMedia(c echo.Context) error {
 	}
 
 	// Insert the media into the DB.
-	m, err := a.core.InsertMedia(fName, thumbfName, contentType, meta, a.cfg.MediaUpload.Provider, a.media)
+	// FORK(hcm): with its brand owner row, in one transaction.
+	m, err := a.core.InsertMediaOwned(fName, thumbfName, contentType, meta, a.cfg.MediaUpload.Provider, a.media, owner, assign)
 	if err != nil {
 		cleanUp = true
 		return err
@@ -147,7 +154,7 @@ func (a *App) GetAllMedia(c echo.Context) error {
 		pg = a.pg.NewFromURL(c.Request().URL.Query())
 	)
 	// Fetch the media items from the DB.
-	res, total, err := a.core.QueryMedia(a.cfg.MediaUpload.Provider, a.media, query, pg.Offset, pg.Limit)
+	res, total, err := a.core.QueryMedia(a.cfg.MediaUpload.Provider, a.media, query, pg.Offset, pg.Limit, brandSlugOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -166,6 +173,10 @@ func (a *App) GetAllMedia(c echo.Context) error {
 func (a *App) GetMedia(c echo.Context) error {
 	// Fetch the media item from the DB.
 	id := getID(c)
+	// FORK(hcm): 404 outside the selected brand.
+	if err := a.mediaInBrand(c, id); err != nil {
+		return err
+	}
 	out, err := a.core.GetMedia(id, "", "", a.media)
 	if err != nil {
 		return err
@@ -179,6 +190,10 @@ func (a *App) DeleteMedia(c echo.Context) error {
 
 	// Delete the media from the DB. The query returns the filename.
 	id := getID(c)
+	// FORK(hcm): 404 outside the selected brand.
+	if err := a.mediaInBrand(c, id); err != nil {
+		return err
+	}
 	fname, err := a.core.DeleteMedia(id)
 	if err != nil {
 		return err

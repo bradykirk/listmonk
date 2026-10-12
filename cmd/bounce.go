@@ -16,7 +16,7 @@ import (
 func (a *App) GetBounce(c echo.Context) error {
 	// Fetch one bounce from the DB.
 	id := getID(c)
-	out, err := a.core.GetBounce(id)
+	out, err := a.core.GetBounce(id, brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -36,7 +36,7 @@ func (a *App) GetBounces(c echo.Context) error {
 	)
 
 	// Query and fetch bounces from the DB.
-	res, total, err := a.core.QueryBounces(campID, 0, source, orderBy, order, pg.Offset, pg.Limit)
+	res, total, err := a.core.QueryBounces(campID, 0, source, orderBy, order, pg.Offset, pg.Limit, brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -66,7 +66,7 @@ func (a *App) GetSubscriberBounces(c echo.Context) error {
 	}
 
 	// Query and fetch bounces from the DB.
-	out, _, err := a.core.QueryBounces(0, subID, "", "", "", 0, 1000)
+	out, _, err := a.core.QueryBounces(0, subID, "", "", "", 0, 1000, brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -93,7 +93,8 @@ func (a *App) DeleteBounces(c echo.Context) error {
 	}
 
 	// Delete bounces from the DB.
-	if err := a.core.DeleteBounces(ids, all); err != nil {
+	// FORK(hcm): in a brand view, only the brand's bounces are deleted.
+	if err := a.core.DeleteBounces(ids, all, brandListsOrNil(c)); err != nil {
 		return err
 	}
 
@@ -104,7 +105,8 @@ func (a *App) DeleteBounces(c echo.Context) error {
 func (a *App) DeleteBounce(c echo.Context) error {
 	// Delete bounces from the DB.
 	id := getID(c)
-	if err := a.core.DeleteBounces([]int{id}, false); err != nil {
+	// FORK(hcm): in a brand view, a bounce outside the brand is not deleted.
+	if err := a.core.DeleteBounces([]int{id}, false, brandListsOrNil(c)); err != nil {
 		return err
 	}
 

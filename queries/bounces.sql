@@ -52,10 +52,33 @@ WHERE ($1 = 0 OR bounces.id = $1)
     AND ($2 = 0 OR bounces.campaign_id = $2)
     AND ($3 = 0 OR bounces.subscriber_id = $3)
     AND ($4 = '' OR bounces.source = $4)
+    -- FORK(hcm): brand scope. $7 = brand list IDs, NULL = all brands. A bounce matches when its
+    -- campaign is in the brand, or it has no campaign and its subscriber is on a brand list.
+    AND ($7::INT[] IS NULL
+        OR (bounces.campaign_id IS NOT NULL
+            AND EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = bounces.campaign_id)
+            AND NOT EXISTS (
+                SELECT 1 FROM campaign_lists x
+                WHERE x.campaign_id = bounces.campaign_id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($7::INT[])))
+            ))
+        OR (bounces.campaign_id IS NULL AND EXISTS (
+            SELECT 1 FROM subscriber_lists sl WHERE sl.subscriber_id = bounces.subscriber_id AND sl.list_id = ANY($7::INT[])
+        )))
 ORDER BY %order% OFFSET $5 LIMIT (CASE WHEN $6 < 1 THEN NULL ELSE $6 END);
 
 -- name: delete-bounces
-DELETE FROM bounces WHERE $2 = TRUE OR id = ANY($1);
+-- FORK(hcm): brand scope. $3 = brand list IDs, NULL = all brands (same predicate as query-bounces).
+DELETE FROM bounces WHERE ($2 = TRUE OR id = ANY($1))
+    AND ($3::INT[] IS NULL
+        OR (bounces.campaign_id IS NOT NULL
+            AND EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = bounces.campaign_id)
+            AND NOT EXISTS (
+                SELECT 1 FROM campaign_lists x
+                WHERE x.campaign_id = bounces.campaign_id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($3::INT[])))
+            ))
+        OR (bounces.campaign_id IS NULL AND EXISTS (
+            SELECT 1 FROM subscriber_lists sl WHERE sl.subscriber_id = bounces.subscriber_id AND sl.list_id = ANY($3::INT[])
+        )));
 
 -- name: delete-bounces-by-subscriber
 WITH sub AS (

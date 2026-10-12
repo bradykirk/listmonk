@@ -20,7 +20,7 @@ func listIDParam(c echo.Context) int {
 
 // GetAnalyticsGrowth returns weekly subscriber growth for the audience chart.
 func (a *App) GetAnalyticsGrowth(c echo.Context) error {
-	out, err := a.core.GetAnalyticsGrowth(listIDParam(c))
+	out, err := a.core.GetAnalyticsGrowth(listIDParam(c), brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -30,7 +30,7 @@ func (a *App) GetAnalyticsGrowth(c echo.Context) error {
 
 // GetAnalyticsCampaigns returns per-campaign opens, clicks and bounces.
 func (a *App) GetAnalyticsCampaigns(c echo.Context) error {
-	out, err := a.core.GetAnalyticsCampaigns()
+	out, err := a.core.GetAnalyticsCampaigns(brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func (a *App) GetAnalyticsCampaigns(c echo.Context) error {
 
 // GetAnalyticsCohorts returns engagement cohorts for the sunset view.
 func (a *App) GetAnalyticsCohorts(c echo.Context) error {
-	out, err := a.core.GetAnalyticsCohorts(listIDParam(c))
+	out, err := a.core.GetAnalyticsCohorts(listIDParam(c), brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,14 @@ func campIDParam(c echo.Context) int {
 
 // GetAnalyticsCampaignTimeline returns hourly opens and clicks for a campaign.
 func (a *App) GetAnalyticsCampaignTimeline(c echo.Context) error {
-	out, err := a.core.GetAnalyticsCampaignTimeline(campIDParam(c))
+	// FORK(hcm): 404 for a campaign outside the selected brand.
+	id := campIDParam(c)
+	if id > 0 {
+		if err := a.campaignInBrand(c, id); err != nil {
+			return err
+		}
+	}
+	out, err := a.core.GetAnalyticsCampaignTimeline(id, brandListsOrNil(c))
 	if err != nil {
 		return err
 	}
@@ -71,7 +78,14 @@ func (a *App) GetAnalyticsCampaignTimeline(c echo.Context) error {
 
 // GetAnalyticsCampaignLinks returns the most clicked links in a campaign.
 func (a *App) GetAnalyticsCampaignLinks(c echo.Context) error {
-	out, err := a.core.GetAnalyticsCampaignLinks(campIDParam(c))
+	// FORK(hcm): 404 for a campaign outside the selected brand.
+	id := campIDParam(c)
+	if id > 0 {
+		if err := a.campaignInBrand(c, id); err != nil {
+			return err
+		}
+	}
+	out, err := a.core.GetAnalyticsCampaignLinks(id, brandListsOrNil(c))
 	if err != nil {
 		return err
 	}
@@ -81,7 +95,14 @@ func (a *App) GetAnalyticsCampaignLinks(c echo.Context) error {
 
 // GetAnalyticsActivity returns the recent subscriber activity feed.
 func (a *App) GetAnalyticsActivity(c echo.Context) error {
-	out, err := a.core.GetAnalyticsActivity(campIDParam(c))
+	// FORK(hcm): 404 for a campaign outside the selected brand.
+	id := campIDParam(c)
+	if id > 0 {
+		if err := a.campaignInBrand(c, id); err != nil {
+			return err
+		}
+	}
+	out, err := a.core.GetAnalyticsActivity(id, brandListsOrNil(c))
 	if err != nil {
 		return err
 	}
@@ -91,7 +112,7 @@ func (a *App) GetAnalyticsActivity(c echo.Context) error {
 
 // GetAnalyticsSummary returns the headline counts for the KPI row.
 func (a *App) GetAnalyticsSummary(c echo.Context) error {
-	out, err := a.core.GetAnalyticsSummary(listIDParam(c))
+	out, err := a.core.GetAnalyticsSummary(listIDParam(c), brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -101,7 +122,7 @@ func (a *App) GetAnalyticsSummary(c echo.Context) error {
 
 // GetAnalyticsDomains returns engagement and bounces per mailbox provider.
 func (a *App) GetAnalyticsDomains(c echo.Context) error {
-	out, err := a.core.GetAnalyticsDomains(listIDParam(c))
+	out, err := a.core.GetAnalyticsDomains(listIDParam(c), brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}
@@ -111,7 +132,7 @@ func (a *App) GetAnalyticsDomains(c echo.Context) error {
 
 // GetAnalyticsSendTimes returns open rates by weekday and hour of sending.
 func (a *App) GetAnalyticsSendTimes(c echo.Context) error {
-	out, err := a.core.GetAnalyticsSendTimes()
+	out, err := a.core.GetAnalyticsSendTimes(brandListsOrNil(c)) // FORK(hcm): brand
 	if err != nil {
 		return err
 	}

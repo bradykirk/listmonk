@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/models"
 	"github.com/labstack/echo/v4"
 )
@@ -38,6 +39,10 @@ func (a *App) GetTemplate(c echo.Context) error {
 
 	// Get the template from the DB.
 	id := getID(c)
+	// FORK(hcm): 404 outside the selected brand.
+	if err := a.templateInBrand(c, id); err != nil {
+		return err
+	}
 	out, err := a.core.GetTemplate(id, noBody)
 	if err != nil {
 		return err
@@ -57,6 +62,21 @@ func (a *App) GetTemplates(c echo.Context) error {
 		return err
 	}
 
+	// FORK(hcm): in a brand view, keep the brand's templates and shared ones.
+	if b, _, ok := brands.BrandFrom(c); ok {
+		owners, err := a.brands.Store.TemplateOwners()
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "error loading template owners")
+		}
+		kept := make([]models.Template, 0, len(out))
+		for _, t := range out {
+			if brands.Visible(owners, b.Slug, t.ID) {
+				kept = append(kept, t)
+			}
+		}
+		out = kept
+	}
+
 	return c.JSON(http.StatusOK, okResp{out})
 }
 
@@ -64,6 +84,10 @@ func (a *App) GetTemplates(c echo.Context) error {
 func (a *App) PreviewTemplate(c echo.Context) error {
 	// Fetch one template from the DB.
 	id := getID(c)
+	// FORK(hcm): 404 outside the selected brand.
+	if err := a.templateInBrand(c, id); err != nil {
+		return err
+	}
 	tpl, err := a.core.GetTemplate(id, false)
 	if err != nil {
 		return err
@@ -129,8 +153,12 @@ func (a *App) CreateTemplate(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	// Create the template the in the DB.
-	out, err := a.core.CreateTemplate(o.Name, o.Type, o.Subject, []byte(o.Body), o.BodySource)
+	// FORK(hcm): create the template and its brand owner row in one transaction.
+	owner, assign, err := a.createOwner(c)
+	if err != nil {
+		return err
+	}
+	out, err := a.core.CreateTemplateOwned(o.Name, o.Type, o.Subject, []byte(o.Body), o.BodySource, owner, assign)
 	if err != nil {
 		return err
 	}
@@ -171,6 +199,10 @@ func (a *App) UpdateTemplate(c echo.Context) error {
 
 	// Update the template in the DB.
 	id := getID(c)
+	// FORK(hcm): 404 outside the selected brand.
+	if err := a.templateInBrand(c, id); err != nil {
+		return err
+	}
 	out, err := a.core.UpdateTemplate(id, o.Name, o.Subject, []byte(o.Body), o.BodySource)
 	if err != nil {
 		return err
@@ -189,6 +221,10 @@ func (a *App) UpdateTemplate(c echo.Context) error {
 func (a *App) TemplateSetDefault(c echo.Context) error {
 	// Update the template in the DB.
 	id := getID(c)
+	// FORK(hcm): 404 outside the selected brand.
+	if err := a.templateInBrand(c, id); err != nil {
+		return err
+	}
 	if err := a.core.SetDefaultTemplate(id); err != nil {
 		return err
 	}
@@ -200,6 +236,10 @@ func (a *App) TemplateSetDefault(c echo.Context) error {
 func (a *App) DeleteTemplate(c echo.Context) error {
 	// Delete the template from the DB.
 	id := getID(c)
+	// FORK(hcm): 404 outside the selected brand.
+	if err := a.templateInBrand(c, id); err != nil {
+		return err
+	}
 	if err := a.core.DeleteTemplate(id); err != nil {
 		return err
 	}
