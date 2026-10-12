@@ -214,6 +214,10 @@ if ! printf '%s' "$BODY" | jq -e '.data.messengers | index("email-ri")' >/dev/nu
   echo "the instance has no messenger email-ri (add an SMTP server named email-ri that points at the sink)"; exit 2
 fi
 admin GET /api/settings
+BAD_SMTP=$(jget '[.data.smtp[] | select(.enabled) | .host | select(. != "127.0.0.1" and . != "localhost")] | join(",")')
+if [ -n "$BAD_SMTP" ]; then
+  echo "refusing to run: enabled SMTP servers must use host 127.0.0.1 or localhost (the local sink); found: $BAD_SMTP"; exit 2
+fi
 if [ "$(jget '.data["app.enable_public_subscription_page"]')" != "true" ]; then
   echo "app.enable_public_subscription_page must be true (public form checks)"; exit 2
 fi

@@ -745,13 +745,6 @@ one list (the automation's list). The runner never picks it up. It is hidden fro
 campaign lists and counts, and the fork refuses status changes, delete and list changes
 for it (400, "automation email"). It is edited with the normal campaign editor.
 
-**Known gap: `--install` on an empty database fails.** `cmd/install.go` bootstraps only
-the brands tables before it prepares the queries, and `get-analytics-summary` names
-`ext.automation_steps`. A fresh `--install` exits with
-`relation "ext.automation_steps" does not exist`. Existing databases are not affected
-(`--install --idempotent` skips an installed database). Fix: call
-`automations.Bootstrap(db)` after `brands.Bootstrap(db)` in `install()`.
-
 **Checks after every upstream sync.** Run both e2e scripts against a fresh LOCAL
 instance with the SMTP sink (see "Post-sync checklist" in the Brands section for the
 environment):
@@ -767,6 +760,7 @@ code and re-apply the marked lines.
 | File | Change |
 | --- | --- |
 | `cmd/main.go` | Import `internal/automations`. Add `automations *automations.Store` to `App`. Run `automations.Bootstrap(db)` before the queries are prepared. Start the worker (`automations.NewWorker(...).Run`, 30 s tick) after the manager. Set `App.automations` to the shared store. |
+| `cmd/install.go` | Import `internal/automations`. Run `automations.Bootstrap(db)` after `brands.Bootstrap(db)` and before the install queries are prepared (`get-analytics-summary` and others name `ext.automation_steps`). |
 | `cmd/handlers.go` | Register the six `/api/ext/automations` routes (list, create, get, update, delete: `campaigns:*` permissions; enroll: `subscribers:manage`). |
 | `cmd/campaigns.go` | `UpdateCampaign`: call `stepCampaignGuard` after validation (list must stay the automation list; for an enabled automation: `campaigns:send`, no `[[SENDER_INFO]]`, brand send guard). `UpdateCampaignStatus`: 400 for a step campaign. `DeleteCampaign`: 400 for a step campaign. `DeleteCampaigns`: drop step campaign ids from an id list (400 when only step campaigns are left). |
 | `cmd/public.go` | `confirmOptinSubscription`: write enrollment intents before the confirm and resolve them after it succeeds. `processSubForm`: write intents before the insert; resolve them after a successful insert and after a successful update of an existing subscriber. |

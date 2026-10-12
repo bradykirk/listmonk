@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid/v5"
 	"github.com/jmoiron/sqlx"
 	"github.com/knadh/listmonk/internal/auth"
+	"github.com/knadh/listmonk/internal/automations" // FORK(hcm)
 	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/internal/utils"
 	"github.com/knadh/listmonk/models"
@@ -69,6 +70,10 @@ func install(lastVer string, db *sqlx.DB, fs stuffbin.FileSystem, prompt, idempo
 	// FORK(hcm): queries reference the ext schema, so create it first.
 	if err := brands.Bootstrap(db); err != nil {
 		lo.Fatalf("error bootstrapping brands schema: %v", err)
+	}
+	// FORK(hcm): the queries also reference the automations tables.
+	if err := automations.Bootstrap(db); err != nil {
+		lo.Fatalf("error bootstrapping automations schema: %v", err)
 	}
 
 	// Load the queries.
