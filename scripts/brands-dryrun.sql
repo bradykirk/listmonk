@@ -40,10 +40,10 @@ SELECT 'campaign', cb.id, cb.name,
     WHEN (SELECT COUNT(DISTINCT lb.brands[1]) FROM campaign_lists cl JOIN lb ON lb.id = cl.list_id WHERE cl.campaign_id = cb.id) > 1 THEN 'BLOCK: mixed brands'
     WHEN NOT EXISTS (SELECT 1 FROM b WHERE b.slug = cb.brand AND cb.messenger = ANY(b.messengers)) THEN 'BLOCK: messenger'
     -- net/mail.ParseAddress must accept the from address, or the guard blocks it. Strict
-    -- anchored forms only (over-blocking is the safe direction): bare address, or name-addr
-    -- with an unquoted or quoted display name.
-    WHEN NOT (cb.from_email ~ '^[^<>@[:space:],"]+@[^<>@[:space:],"]+$'
-              OR cb.from_email ~ '^("[^"]*"|[^<>@,"]*)[[:space:]]*<[^<>@[:space:]]+@[^<>@[:space:]]+>[[:space:]]*$') THEN 'BLOCK: from address unparsed'
+    -- anchored RFC 5322 atext forms only (over-blocking is the safe direction): a bare
+    -- dot-atom address, or name-addr with a quoted or an atext-word display name.
+    WHEN NOT (cb.from_email ~ '^[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$'
+              OR cb.from_email ~ '^("[^"\\]*"|([A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+\.?([[:space:]]+[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+\.?)*)?)[[:space:]]*<[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*>[[:space:]]*$') THEN 'BLOCK: from address unparsed'
     WHEN NOT EXISTS (SELECT 1 FROM b, unnest(b.from_domains) AS d
                      WHERE b.slug = cb.brand AND d <> ''
                        AND (cb.dom = lower(d) OR right(cb.dom, length(d) + 1) = '.' || lower(d))) THEN 'BLOCK: from domain'

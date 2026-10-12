@@ -620,8 +620,9 @@ SQL script.
 production before the deploy. It shows the brand of each list, the brand or `BLOCK`
 reason of each draft, scheduled, running and paused campaign, and the template seed
 owners. Campaign rows apply all four guard checks: one brand (lists), messenger
-(`BLOCK: messenger`), from address parse (`BLOCK: from address unparsed`: anchored
-regex for a bare address or a name-addr form, stricter than `net/mail.ParseAddress`) and
+(`BLOCK: messenger`), from address parse (`BLOCK: from address unparsed`: RFC 5322
+atext regexes for a dot-atom address or a name-addr form; stricter than `net/mail.ParseAddress`,
+never looser) and
 from domain (`BLOCK: from domain`, suffix match, empty `from_domains` blocks). No running or scheduled campaign may show any `BLOCK`. The
 `privilege` row (`CREATE` on the database) must be `true`, because `Bootstrap` runs
 `CREATE SCHEMA IF NOT EXISTS ext` and the app exits without it.
