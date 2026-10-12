@@ -125,6 +125,7 @@ func TestCheckRouteTable(t *testing.T) {
 		{Method: "GET", Path: "/api/lists"},
 		{Method: "GET", Path: "/api/new-upstream"},
 		{Method: "GET", Path: "/health"},
+		{Method: echo.RouteNotFound, Path: "/api/*"},
 	})
 	if len(got) != 1 || got[0] != "GET /api/new-upstream" {
 		t.Fatal(got)

@@ -111,6 +111,10 @@ func BrandFrom(c echo.Context) (Brand, []int, bool) {
 func (s *Service) CheckRouteTable(routes []*echo.Route) []string {
 	var missing []string
 	for _, r := range routes {
+		// RouteNotFound handlers are stored as routes; they are not endpoints.
+		if r.Method == echo.RouteNotFound {
+			continue
+		}
 		if strings.HasPrefix(r.Path, "/api/") {
 			if c, _ := Classify(r.Method, r.Path); c == Unclassified {
 				missing = append(missing, r.Method+" "+r.Path)
