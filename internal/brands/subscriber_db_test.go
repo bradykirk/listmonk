@@ -163,3 +163,32 @@ func mustJSON(t *testing.T, b []byte, v interface{}) {
 		t.Fatalf("json %s: %v", b, err)
 	}
 }
+
+// TestOptinListsScoped runs get-subscriber-lists as makeOptinNotifyHook does.
+func TestOptinListsScoped(t *testing.T) {
+	db, _, q := subSetup(t)
+	if _, err := db.Exec(`UPDATE lists SET optin = 'double';
+UPDATE subscriber_lists SET status = 'unconfirmed';`); err != nil {
+		t.Fatal(err)
+	}
+	get := func(ids []int) []int {
+		var lists []models.List
+		if err := q.GetSubscriberLists.Unsafe().Select(&lists, 1, nil, pq.Array(ids), nil, models.SubscriptionStatusUnconfirmed, models.ListOptinDouble); err != nil {
+			t.Fatal(err)
+		}
+		out := []int{}
+		for _, l := range lists {
+			out = append(out, l.ID)
+		}
+		return out
+	}
+	if got := get(nil); len(got) != 2 {
+		t.Fatalf("nil (upstream) should return all lists: %v", got)
+	}
+	if got := get([]int{2}); len(got) != 1 || got[0] != 2 {
+		t.Fatalf("TA lists: %v", got)
+	}
+	if got := get(ScopedPermittedLists(nil)); len(got) != 0 {
+		t.Fatalf("empty brand: %v", got)
+	}
+}

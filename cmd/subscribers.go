@@ -353,6 +353,11 @@ func (a *App) UpdateSubscriber(c echo.Context) error {
 		permittedLists = []int{}
 	}
 
+	if _, _, ok := brands.BrandFrom(c); ok && len(listIDs) == 0 {
+		// FORK(hcm): empty listIDs makes the opt-in hook mail every list of the subscriber.
+		listIDs = []int{-1}
+	}
+
 	out, _, err := a.core.UpdateSubscriberWithLists(id, req.Subscriber, listIDs, nil, req.PreconfirmSubs, true, false, permittedLists, false)
 	if err != nil {
 		return err
@@ -442,6 +447,11 @@ func (a *App) PatchSubscriber(c echo.Context) error {
 		permittedLists = []int{}
 	}
 
+	if _, _, ok := brands.BrandFrom(c); ok && len(listIDs) == 0 {
+		// FORK(hcm): empty listIDs makes the opt-in hook mail every list of the subscriber.
+		listIDs = []int{-1}
+	}
+
 	out, _, err := a.core.UpdateSubscriberWithLists(id, req.Subscriber, listIDs, nil, req.PreconfirmSubs, overwriteSubs, false, permittedLists, false)
 	if err != nil {
 		return err
@@ -468,7 +478,13 @@ func (a *App) SubscriberSendOptin(c echo.Context) error {
 	}
 
 	// Trigger the opt-in confirmation e-mail hook.
-	if _, err := a.fnOptinNotify(out, nil); err != nil {
+	// FORK(hcm): nil means "every list" in the hook. In a brand view, send only this brand's lists.
+	// An empty slice also means "every list", so a brand with no lists passes {-1}.
+	var optinLists []int
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		optinLists = brands.ScopedPermittedLists(ids)
+	}
+	if _, err := a.fnOptinNotify(out, optinLists); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, a.i18n.T("subscribers.errorSendingOptin"))
 	}
 
