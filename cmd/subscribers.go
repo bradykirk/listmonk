@@ -76,7 +76,7 @@ func (a *App) GetSubscriber(c echo.Context) error {
 		return err
 	}
 
-	maskRestrictedSubLists(user, &out)
+	scopeSubLists(c, user, &out)
 
 	return c.JSON(http.StatusOK, okResp{out})
 }
@@ -147,7 +147,7 @@ func (a *App) QuerySubscribers(c echo.Context) error {
 	}
 
 	for i := range res {
-		maskRestrictedSubLists(user, &res[i])
+		scopeSubLists(c, user, &res[i])
 	}
 
 	out := models.PageResults{
@@ -378,7 +378,7 @@ func (a *App) UpdateSubscriber(c echo.Context) error {
 		return err
 	}
 
-	maskRestrictedSubLists(user, &out)
+	scopeSubLists(c, user, &out)
 
 	return c.JSON(http.StatusOK, okResp{out})
 }
@@ -472,7 +472,7 @@ func (a *App) PatchSubscriber(c echo.Context) error {
 		return err
 	}
 
-	maskRestrictedSubLists(user, &out)
+	scopeSubLists(c, user, &out)
 
 	return c.JSON(http.StatusOK, okResp{out})
 }
@@ -906,6 +906,18 @@ func maskRestrictedSubLists(user auth.User, sub *models.Subscriber) {
 	if b, err := json.Marshal(lists); err == nil {
 		sub.Lists = b
 	}
+}
+
+// scopeSubLists prepares a subscriber's lists for a response.
+// FORK(hcm): in a brand view it drops every subscription outside the brand, so
+// the admin form never holds or resubmits another brand's lists (spec 5.4).
+// With All brands it is the upstream maskRestrictedSubLists.
+func scopeSubLists(c echo.Context, user auth.User, sub *models.Subscriber) {
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		sub.Lists = brands.FilterSubscriberLists(sub.Lists, ids)
+		return
+	}
+	maskRestrictedSubLists(user, sub)
 }
 
 // hasSubPerm checks whether the current user has permission to access the given list

@@ -326,6 +326,29 @@ admin PUT /api/subscribers/lists "$(jq -nc --argjson i "[$S]" --argjson l "[$T1]
 admin PUT /api/subscribers/lists "$(jq -nc --argjson i "[$S]" --argjson l "[$T2]" '{ids:$i, action:"add", target_list_ids:$l, status:"unconfirmed"}')"
 SUBS_BEFORE=$(sub_lists "$S")
 
+echo "== codex fix: brand view shows only brand lists; name-only edit works"
+only_ta='[.data.lists[].id] | sort == ([$t1,$t2] | sort)'
+BRAND=ta req GET "/api/subscribers/$S"
+expect "ta: GET subscriber -> 200" 200
+jq_ok "ta: GET subscriber lists contain only ta lists" "$only_ta" --argjson t1 "$T1" --argjson t2 "$T2"
+BRAND=ta req GET "/api/subscribers?per_page=all&list_id=$T1"
+jq_ok "ta: GET subscribers query results contain only ta lists" \
+  '[.data.results[] | select(.id == $s) | .lists[].id] | sort == ([$t1,$t2] | sort)' --argjson s "$S" --argjson t1 "$T1" --argjson t2 "$T2"
+# The form resubmits the lists it received (ta lists only) with a changed name.
+NAME_ONLY=$(jq -nc --arg e "s-$RUN@example.com" --argjson l "[$T1,$T2]" '{email:$e, name:"E2E Sub Renamed", status:"enabled", lists:$l}')
+BRAND=ta req PUT "/api/subscribers/$S" "$NAME_ONLY"
+expect "ta: name-only PUT with the ta list ids -> 200" 200
+jq_ok "ta: PUT response lists contain only ta lists" "$only_ta" --argjson t1 "$T1" --argjson t2 "$T2"
+BRAND=ta req PATCH "/api/subscribers/$S" "$(jq -nc --argjson l "[$T1,$T2]" '{name:"E2E Sub Patched", lists:$l}')"
+expect "ta: name-only PATCH with the ta list ids -> 200" 200
+jq_ok "ta: PATCH response lists contain only ta lists" "$only_ta" --argjson t1 "$T1" --argjson t2 "$T2"
+admin GET "/api/subscribers/$S"
+jq_ok "ri subscriptions unchanged after the ta name-only edits" \
+  '([.data.lists[] | select(.id == $r1) | .subscription_status] == ["confirmed"]) and ([.data.lists[] | select(.id == $r2) | .subscription_status] == ["unconfirmed"])' \
+  --argjson r1 "$R1" --argjson r2 "$R2"
+jq_ok "admin view still shows all 4 lists" '[.data.lists[].id] | length == 4'
+SUBS_BEFORE=$(sub_lists "$S")
+
 # ---------- step 4: delete / blocklist refused ----------
 
 echo "== step 4: delete and blocklist are refused in a brand view"
@@ -557,6 +580,28 @@ expect_msg "ri: PUT campaign with a ta template -> 400" 400 "must belong to the 
 admin GET "/api/campaigns/$CT_OK"
 jq_ok "campaign keeps the shared template after the refused PUT" '.data.template_id == $t' --argjson t "$TS"
 admin DELETE "/api/campaigns/$CT_OK"
+
+# Default template: create-campaign uses it when template_id is omitted.
+admin GET "/api/templates"
+DEF_BEFORE=$(jget '[.data[] | select(.is_default)][0].id')
+admin POST "/api/templates?brand=ri" "$(tpl_json "tpl-ri-def-$RUN")"; TD=$(jget .data.id)
+admin PUT "/api/templates/$TD/default"
+expect "make the ri-owned template the default" 200
+CJ_NT=$(camp_json "nt-$RUN" "[$T1]" "$FROM_TA" | jq -c 'del(.template_id)')
+BRAND=ta req POST /api/campaigns "$CJ_NT"
+expect_msg "ta: POST campaign without template_id, default is ri-owned -> 400" 400 "default template does not belong"
+BRAND=ta req POST /api/campaigns "$(printf '%s' "$CJ_NT" | jq -c --argjson t "$TS" '.template_id = $t')"
+expect "ta: POST campaign with a shared template_id, default is ri-owned -> 200" 200
+admin DELETE "/api/campaigns/$(jget .data.id)"
+admin POST /api/campaigns "$(camp_json "nt-all-$RUN" "[$T1]" "$FROM_TA" | jq -c 'del(.template_id)')"
+expect "all brands: POST campaign without template_id, ri-owned default -> 200" 200
+admin DELETE "/api/campaigns/$(jget .data.id)"
+admin PUT "/api/ext/templates/$TD/brand" '{"brand":null}'
+BRAND=ta req POST /api/campaigns "$CJ_NT"
+expect "ta: POST campaign without template_id, default now shared -> 200" 200
+admin DELETE "/api/campaigns/$(jget .data.id)"
+[ -n "$DEF_BEFORE" ] && [ "$DEF_BEFORE" != "null" ] && admin PUT "/api/templates/$DEF_BEFORE/default"
+admin DELETE "/api/templates/$TD"
 
 LJ=$(jq -nc --arg n "own-$RUN" '{name:$n, type:"private", optin:"single", tags:["x","ri"]}')
 BRAND=ta req POST /api/lists "$LJ"

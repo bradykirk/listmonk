@@ -268,6 +268,10 @@ func (a *App) CreateCampaign(c echo.Context) error {
 	if err := a.campaignRefsInBrand(c, o); err != nil {
 		return err
 	}
+	// FORK(hcm): the default template used when template_id is omitted must be visible too.
+	if err := a.defaultTemplateInBrand(c, o); err != nil {
+		return err
+	}
 
 	// Filter lists against the current user's permitted lists.
 	user := auth.GetUser(c)

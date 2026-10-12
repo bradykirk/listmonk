@@ -1,6 +1,10 @@
 package brands
 
-import "github.com/knadh/listmonk/internal/auth"
+import (
+	"encoding/json"
+
+	"github.com/knadh/listmonk/internal/auth"
+)
 
 // blanket maps each blanket permission to the narrow permission it implies.
 var blanket = map[string]string{
@@ -61,4 +65,30 @@ func ScopeUser(u auth.User, brandLists []int, allPerms map[string]struct{}) auth
 		}
 	}
 	return s
+}
+
+// FilterSubscriberLists keeps only the subscription objects whose id is in
+// brandListIDs. It drops other brands' subscriptions from a subscriber response
+// (spec 5.4). Input is the subscriber's lists JSON array.
+func FilterSubscriberLists(raw []byte, brandListIDs []int) []byte {
+	var lists []map[string]interface{}
+	if len(raw) == 0 || json.Unmarshal(raw, &lists) != nil {
+		return []byte("[]")
+	}
+	in := make(map[int]struct{}, len(brandListIDs))
+	for _, id := range brandListIDs {
+		in[id] = struct{}{}
+	}
+	out := make([]map[string]interface{}, 0, len(lists))
+	for _, l := range lists {
+		id, _ := l["id"].(float64)
+		if _, ok := in[int(id)]; ok {
+			out = append(out, l)
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return []byte("[]")
+	}
+	return b
 }

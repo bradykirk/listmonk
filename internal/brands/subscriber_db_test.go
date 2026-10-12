@@ -236,3 +236,39 @@ INSERT INTO subscriber_lists (subscriber_id, list_id, status) VALUES (2, 3, 'con
 		t.Fatalf("empty brand: %v", got)
 	}
 }
+
+// A TA-view name-only edit resubmits only the TA list IDs (the response no
+// longer carries RI lists). The RI subscription must stay confirmed.
+func TestSubscriberNameOnlyEditKeepsOtherBrand(t *testing.T) {
+	db, c, _ := subSetup(t)
+	sub := models.Subscriber{Email: "s@example.com", FirstName: "Renamed", Status: "enabled"}
+	_, permitted := taManageUser().GetPermittedLists(auth.PermTypeManage)
+	out, _, err := c.UpdateSubscriberWithLists(1, sub, []int{2}, nil, false, true, false, ScopedPermittedLists(permitted), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := subStatus(t, db, 1, 1); got != "confirmed" {
+		t.Fatalf("RI subscription changed: %q", got)
+	}
+	if got := subStatus(t, db, 1, 2); got != "confirmed" {
+		t.Fatalf("TA subscription changed: %q", got)
+	}
+	var lists []map[string]interface{}
+	if err := json.Unmarshal(FilterSubscriberLists(out.Lists, []int{2}), &lists); err != nil || len(lists) != 1 || lists[0]["id"].(float64) != 2 {
+		t.Fatalf("filtered response lists: %s", out.Lists)
+	}
+}
+
+func TestDefaultTemplateID(t *testing.T) {
+	db := testDB(t)
+	s := NewStore(db)
+	if id, err := s.DefaultTemplateID(); err != nil || id != 0 {
+		t.Fatalf("no default: %d %v", id, err)
+	}
+	db.MustExec(`INSERT INTO templates (name, type, subject, body, is_default) VALUES ('d', 'campaign', '', 'x', TRUE)`)
+	var want int
+	db.Get(&want, `SELECT id FROM templates WHERE is_default`)
+	if id, err := s.DefaultTemplateID(); err != nil || id != want {
+		t.Fatalf("default: %d %v want %d", id, err, want)
+	}
+}

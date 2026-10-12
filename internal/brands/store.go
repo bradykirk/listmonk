@@ -184,6 +184,14 @@ func (s *Store) TemplateVisible(id int, slug string) (bool, error) {
 	return ok, err
 }
 
+// DefaultTemplateID returns the id of the default template, or 0 when none is set.
+// FORK(hcm): create-campaign falls back to it when a request has no template_id.
+func (s *Store) DefaultTemplateID() (int, error) {
+	var id int
+	err := s.db.Get(&id, `SELECT COALESCE((SELECT id FROM templates WHERE is_default = TRUE LIMIT 1), 0)`)
+	return id, err
+}
+
 // MediaVisible is TemplateVisible for media.
 func (s *Store) MediaVisible(id int, slug string) (bool, error) {
 	var ok bool

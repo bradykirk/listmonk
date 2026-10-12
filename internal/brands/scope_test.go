@@ -149,3 +149,17 @@ func TestScopeRandomRolesOnlyNarrow(t *testing.T) {
 func impliedBy(p string, u auth.User) bool {
 	return u.HasPerm(p + "_all")
 }
+
+func TestFilterSubscriberLists(t *testing.T) {
+	raw := []byte(`[{"id":1,"name":"RI"},{"id":2,"name":"TA"},{"id":3,"name":"TA2"}]`)
+	got := string(FilterSubscriberLists(raw, []int{2, 3}))
+	if got != `[{"id":2,"name":"TA"},{"id":3,"name":"TA2"}]` {
+		t.Fatalf("got %s", got)
+	}
+	if got := string(FilterSubscriberLists(raw, nil)); got != `[]` {
+		t.Fatalf("empty brand: got %s", got)
+	}
+	if got := string(FilterSubscriberLists(nil, []int{2})); got != `[]` {
+		t.Fatalf("nil raw: got %s", got)
+	}
+}

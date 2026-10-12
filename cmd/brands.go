@@ -146,6 +146,31 @@ func (a *App) campaignRefsInBrand(c echo.Context, o campReq) error {
 	return nil
 }
 
+// defaultTemplateInBrand validates, in a brand view, the template that
+// create-campaign picks when the request has no template_id. Visual campaigns
+// never use the default template. No-op for All brands.
+func (a *App) defaultTemplateInBrand(c echo.Context, o campReq) error {
+	b, _, ok := brands.BrandFrom(c)
+	if !ok || o.TemplateID.Valid || o.ContentType == models.CampaignContentTypeVisual {
+		return nil
+	}
+	id, err := a.brands.Store.DefaultTemplateID()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "error checking the default template")
+	}
+	if id == 0 {
+		return nil
+	}
+	in, err := a.brands.Store.TemplateVisible(id, b.Slug)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, "error checking template brand")
+	}
+	if !in {
+		return echo.NewHTTPError(http.StatusBadRequest, "The default template does not belong to the selected brand. Choose a template.")
+	}
+	return nil
+}
+
 // mediaInBrand is templateInBrand for media.
 func (a *App) mediaInBrand(c echo.Context, id int) error {
 	b, _, ok := brands.BrandFrom(c)
