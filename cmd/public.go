@@ -414,11 +414,20 @@ func (a *App) confirmOptinSubscription(c echo.Context, subUUID string, listUUIDs
 		}
 	}
 
+	// FORK(hcm): automations intent before the opt-in confirm (spec 6.2.1).
+	var intentIDs []int64
+	if sub, err := a.core.GetSubscriber(0, subUUID, ""); err == nil {
+		intentIDs = a.beginSignupIntents(sub.Email, listUUIDs)
+	}
+
 	if err := a.core.ConfirmOptionSubscription(subUUID, listUUIDs, meta); err != nil {
 		a.log.Printf("error confirming opt-in subscription: %v", err)
 		return c.Render(http.StatusInternalServerError, tplMessage,
 			makeMsgTpl(a.i18n.T("public.errorTitle"), "", a.i18n.Ts("public.errorProcessingRequest")))
 	}
+
+	// FORK(hcm): enroll after the confirm succeeded.
+	a.resolveSignupIntents(intentIDs)
 
 	return c.Render(http.StatusOK, tplMessage,
 		makeMsgTpl(a.i18n.T("public.subConfirmedTitle"), "", a.i18n.Ts("public.subConfirmed")))
@@ -783,8 +792,12 @@ func (a *App) processSubForm(c echo.Context) (bool, error) {
 	}
 	models.ResolveSubscriberNames(&newSub, nil)
 
+	// FORK(hcm): automations intent before the subscription change (spec 6.2.1).
+	intentIDs := a.beginSignupIntents(req.Email, listUUIDs)
+
 	_, hasOptin, err := a.core.InsertSubscriber(newSub, nil, listUUIDs, false, true)
 	if err == nil {
+		a.resolveSignupIntents(intentIDs) // FORK(hcm)
 		return hasOptin, nil
 	}
 
@@ -802,6 +815,7 @@ func (a *App) processSubForm(c echo.Context) (bool, error) {
 		// Update the subscriber's subscriptions in the DB.
 		_, hasOptin, err := a.core.UpdateSubscriberWithLists(sub.ID, sub, nil, listUUIDs, false, false, true, nil, true)
 		if err == nil {
+			a.resolveSignupIntents(intentIDs) // FORK(hcm)
 			return hasOptin, nil
 		}
 		lastErr = err

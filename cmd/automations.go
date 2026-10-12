@@ -646,3 +646,37 @@ func campaignListIDs(camp models.Campaign) ([]int, error) {
 	}
 	return ids, nil
 }
+
+// FORK(hcm): durable public-form enrollment intents (spec 6.2.1).
+
+// beginSignupIntents writes the intent rows before a subscription change.
+// It logs errors and never fails the caller. A nil result means no intents.
+func (a *App) beginSignupIntents(email string, listUUIDs []string) []int64 {
+	ids, err := a.automations.ListIDsByUUID(listUUIDs)
+	if err != nil {
+		a.log.Printf("automations: error resolving list UUIDs: %v", err)
+		return nil
+	}
+	intents, err := a.automations.BeginIntents(email, ids)
+	if err != nil {
+		a.log.Printf("automations: error writing intents: %v", err)
+		return nil
+	}
+	return intents
+}
+
+// resolveSignupIntents enrolls from the intent rows after a subscription
+// change succeeded. It logs errors and never fails the caller.
+func (a *App) resolveSignupIntents(ids []int64) {
+	if len(ids) == 0 {
+		return
+	}
+	n, err := a.automations.ResolveIntents(ids)
+	if err != nil {
+		a.log.Printf("automations: error resolving intents: %v", err)
+		return
+	}
+	if n > 0 {
+		a.log.Printf("automations: enrolled %d from the public form", n)
+	}
+}
