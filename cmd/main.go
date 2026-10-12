@@ -45,6 +45,7 @@ type App struct {
 	emailMsgr  manager.Messenger
 	importer   *subimporter.Importer
 	auth       *auth.Auth
+	brands     *brands.Service // FORK(hcm)
 	media      media.Store
 	bounce     *bounce.Manager
 	captcha    *captcha.Captcha
@@ -288,6 +289,7 @@ func main() {
 		emailMsgr:  emailMsgr,
 		importer:   importer,
 		auth:       auth,
+		brands:     &brands.Service{Store: brands.NewStore(db), AllPerms: cfg.Permissions}, // FORK(hcm)
 		media:      media,
 		bounce:     bounce,
 		captcha:    initCaptcha(),

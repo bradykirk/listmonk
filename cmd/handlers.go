@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/knadh/listmonk/internal/auth"
+	"github.com/knadh/listmonk/internal/brands"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
@@ -44,7 +45,7 @@ func initHTTPHandlers(e *echo.Echo, a *App) {
 	if corsOrigins := trustedURLsToCORSOrigins(a.cfg.Security.TrustedURLs); len(corsOrigins) > 0 {
 		e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: corsOrigins,
-			AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
+			AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, brands.HeaderBrand}, // FORK(hcm)
 		}))
 	}
 
@@ -95,7 +96,7 @@ func initHTTPHandlers(e *echo.Echo, a *App) {
 
 					return next(c)
 				}
-			})
+			}, a.brands.Middleware) // FORK(hcm): brand scope, after the auth-error check.
 		)
 
 		// API endpoints.
@@ -316,6 +317,11 @@ func initHTTPHandlers(e *echo.Echo, a *App) {
 		g.RouteNotFound("/admin/*", func(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, "404 page not found")
 		})
+	}
+
+	// FORK(hcm): every /api route must be classified for brand scope.
+	if missing := a.brands.CheckRouteTable(e.Routes()); len(missing) > 0 {
+		a.log.Printf("brands: unclassified routes (fail closed with a brand header): %v", missing)
 	}
 }
 
