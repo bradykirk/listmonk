@@ -30,6 +30,8 @@ LM_LOG=${LM_LOG:-}
 
 # Helper mode: a local SMTP sink. It accepts mail and appends each decoded
 # message to FILE, so the run can inspect opt-in mails. Nothing leaves the machine.
+# Each message is "=====MESSAGE=====", the To header, the X-Listmonk-Campaign
+# header line (when present), then the text parts.
 #   bash scripts/brands-e2e.sh --smtp-sink PORT FILE
 if [ "${1:-}" = "--smtp-sink" ]; then
   exec python3 -I - "$2" "$3" <<'PYEOF'
@@ -46,6 +48,8 @@ class H(socketserver.StreamRequestHandler):
                 if line.rstrip("\r\n") == ".":
                     msg = email.message_from_bytes(("\r\n".join(buf)).encode(), policy=email.policy.default)
                     parts = [str(msg["To"])]
+                    if msg["X-Listmonk-Campaign"]:
+                        parts.append("X-Listmonk-Campaign: " + str(msg["X-Listmonk-Campaign"]))
                     for part in msg.walk():
                         if part.get_content_maintype() == "text":
                             parts.append(part.get_content())

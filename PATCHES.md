@@ -726,3 +726,75 @@ Modified upstream frontend files (all `FORK(hcm)`): `src/api/index.js`,
 `src/components/Navigation.vue`, `src/components/CampaignPreview.vue`,
 `src/views/{ListForm,TemplateForm,Media,Lists,Templates,Subscribers,SubscriberForm}.vue`.
 New: `src/brand.js`, `src/views/settings/Brands.vue`, `scripts/brands-frontend-check.sh`.
+
+## Automations (hcm branch)
+
+Welcome emails sent to each new signup on a list. Spec:
+`docs/superpowers/specs/2026-10-12-automations-design.md`. Every changed upstream
+line carries a `FORK(hcm)` comment. The upstream base for this section is `0990ab94`
+(`git diff --stat 0990ab94..HEAD`).
+
+**Schema.** Tables `ext.automations`, `ext.automation_steps`,
+`ext.automation_enrollments`, `ext.automation_sends` and `ext.automation_intents`
+(`internal/automations/schema.sql`, `CREATE ... IF NOT EXISTS`).
+`automations.Bootstrap` runs it at startup, before the queries are prepared. No upstream
+table is altered and nothing is added to `internal/migrations`.
+
+**Step campaigns.** A step's email is a normal `campaigns` row in status `draft` with
+one list (the automation's list). The runner never picks it up. It is hidden from
+campaign lists and counts, and the fork refuses status changes, delete and list changes
+for it (400, "automation email"). It is edited with the normal campaign editor.
+
+**Known gap: `--install` on an empty database fails.** `cmd/install.go` bootstraps only
+the brands tables before it prepares the queries, and `get-analytics-summary` names
+`ext.automation_steps`. A fresh `--install` exits with
+`relation "ext.automation_steps" does not exist`. Existing databases are not affected
+(`--install --idempotent` skips an installed database). Fix: call
+`automations.Bootstrap(db)` after `brands.Bootstrap(db)` in `install()`.
+
+**Checks after every upstream sync.** Run both e2e scripts against a fresh LOCAL
+instance with the SMTP sink (see "Post-sync checklist" in the Brands section for the
+environment):
+
+- `bash scripts/automations-e2e.sh` needs `LM_SMTP_CAPTURE` and an SMTP server named
+  `email-ri` that points at the sink. It must report `0 failed`.
+- `bash scripts/brands-e2e.sh` must still report `0 failed` (hidden step campaigns must
+  not appear in the brand campaign lists).
+
+**Upstream files changed (new files excluded).** If a hunk conflicts, keep the upstream
+code and re-apply the marked lines.
+
+| File | Change |
+| --- | --- |
+| `cmd/main.go` | Import `internal/automations`. Add `automations *automations.Store` to `App`. Run `automations.Bootstrap(db)` before the queries are prepared. Start the worker (`automations.NewWorker(...).Run`, 30 s tick) after the manager. Set `App.automations` to the shared store. |
+| `cmd/handlers.go` | Register the six `/api/ext/automations` routes (list, create, get, update, delete: `campaigns:*` permissions; enroll: `subscribers:manage`). |
+| `cmd/campaigns.go` | `UpdateCampaign`: call `stepCampaignGuard` after validation (list must stay the automation list; for an enabled automation: `campaigns:send`, no `[[SENDER_INFO]]`, brand send guard). `UpdateCampaignStatus`: 400 for a step campaign. `DeleteCampaign`: 400 for a step campaign. `DeleteCampaigns`: drop step campaign ids from an id list (400 when only step campaigns are left). |
+| `cmd/public.go` | `confirmOptinSubscription`: write enrollment intents before the confirm and resolve them after it succeeds. `processSubForm`: write intents before the insert; resolve them after a successful insert and after a successful update of an existing subscriber. |
+| `internal/manager/manager.go` | Move the message and header build from `worker()` into `campaignOut` (unchanged code). Add `ErrUnknownMessenger` and `SendCampaignMessage`, which sends one message now and returns the messenger's error. |
+| `internal/brands/routes.go` | Classify the six automations routes as `BrandAware`. |
+| `internal/brands/routes_test.go` | `TestAutomationRoutes`: the six routes are `BrandAware`. |
+| `internal/brands/campaign_db_test.go` | Bootstrap the automations tables in the test database (campaign and dashboard queries name them). |
+| `internal/core/dashboard_growth_db_test.go` | Install `internal/automations/schema.sql` in the test database. |
+| `queries/campaigns.sql` | `query-campaigns`: hide step campaigns from lists (not from a lookup by id). `delete-campaigns`: never delete a step campaign. |
+| `queries/analytics.sql` | `get-analytics-summary`: two hunks; step campaigns are not counted. |
+| `queries/ext.sql` | `ext-dashboard-counts`: step campaigns are not counted in the brand dashboard. |
+| `frontend/src/api/index.js` | Add `getAutomations`, `getAutomation`, `createAutomation`, `updateAutomation`, `deleteAutomation` (snake_case keys). |
+| `frontend/src/router/index.js` | Add the routes `/automations` and `/automations/:id`. |
+| `frontend/src/components/Navigation.vue` | Add the "Automations" menu item (permission `campaigns:get_all` or `campaigns:get`). |
+
+New files (no rebase risk): `internal/automations/*` (store, enroll rules, state,
+worker, enable rules, schema and tests), `cmd/automations.go`,
+`internal/manager/send_fork_test.go`, `frontend/src/views/Automations.vue`,
+`frontend/src/views/AutomationForm.vue`, `scripts/automations-e2e.sh`,
+`scripts/convert-eo-welcome.py`, `scripts/fixtures/ta-welcome.html`.
+
+`scripts/brands-e2e.sh` (fork file): the `--smtp-sink` capture now also records the
+`X-Listmonk-Campaign` header line of each message.
+
+**TA welcome email.** `python3 -I scripts/convert-eo-welcome.py IN OUT` converts the
+EmailOctopus source (`tacticaladvisor/emails/welcome.html`) to Listmonk tags and fails
+if an EmailOctopus tag or the text "EmailOctopus" is left. The output is
+`scripts/fixtures/ta-welcome.html` (the orphan "·" separator before the removed
+"Powered by EmailOctopus" link was removed by hand). It still contains
+`[[SENDER_INFO]]`, so the TA automation cannot be enabled until that marker is replaced
+with the postal address.
