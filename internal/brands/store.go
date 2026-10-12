@@ -112,7 +112,7 @@ func (s *Store) Delete(slug string) error {
 		SELECT EXISTS (SELECT 1 FROM ext.template_brands WHERE brand_slug = $1)
 		    OR EXISTS (SELECT 1 FROM ext.media_brands WHERE brand_slug = $1)
 		    OR EXISTS (SELECT 1 FROM lists l, ext.brands b
-		               WHERE b.slug = $1 AND l.tags && b.list_tags)`, slug)
+		               WHERE b.slug = $1 AND l.tags::text[] && b.list_tags)`, slug)
 	if err != nil {
 		return err
 	}

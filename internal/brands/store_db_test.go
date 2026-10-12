@@ -1,6 +1,7 @@
 package brands
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -37,8 +38,8 @@ func TestBootstrapIdempotentAndCRUD(t *testing.T) {
 	if err := s.SetTemplateBrand(tid, &slug); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Delete("ri"); err == nil {
-		t.Fatal("deleted a brand that owns a template")
+	if err := s.Delete("ri"); !errors.Is(err, ErrBrandInUse) {
+		t.Fatalf("want ErrBrandInUse for owned template, got %v", err)
 	}
 	if err := s.SetTemplateBrand(tid, nil); err != nil {
 		t.Fatal(err)
@@ -46,6 +47,37 @@ func TestBootstrapIdempotentAndCRUD(t *testing.T) {
 	owners, _ := s.TemplateOwners()
 	if v, ok := owners[tid]; !ok || v != nil {
 		t.Fatalf("want shared, got %v %v", v, ok)
+	}
+
+	// A list tagged with one of the brand's tags blocks the delete.
+	db.MustExec(`INSERT INTO lists (uuid, name, type, optin, tags) VALUES (gen_random_uuid(), 'l', 'private', 'single', '{ri}')`)
+	if err := s.Delete("ri"); !errors.Is(err, ErrBrandInUse) {
+		t.Fatalf("want ErrBrandInUse for tagged list, got %v", err)
+	}
+	db.MustExec(`DELETE FROM lists`)
+
+	// An owned media row blocks the delete.
+	db.MustExec(`INSERT INTO media (uuid, filename, thumb, provider) VALUES (gen_random_uuid(), 'f.png', 't.png', 'filesystem')`)
+	var mid int
+	if err := db.Get(&mid, `SELECT MAX(id) FROM media`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetMediaBrand(mid, &slug); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete("ri"); !errors.Is(err, ErrBrandInUse) {
+		t.Fatalf("want ErrBrandInUse for owned media, got %v", err)
+	}
+	if err := s.SetMediaBrand(mid, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// An unowned brand deletes.
+	if err := s.Delete("ri"); err != nil {
+		t.Fatalf("delete unowned brand: %v", err)
+	}
+	if _, ok, _ := s.Get("ri"); ok {
+		t.Fatal("brand still present after delete")
 	}
 }
 
