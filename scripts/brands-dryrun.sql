@@ -43,7 +43,7 @@ SELECT 'campaign', cb.id, cb.name,
     -- anchored RFC 5322 atext forms only (over-blocking is the safe direction): a bare
     -- dot-atom address, or name-addr with a quoted or an atext-word display name.
     WHEN NOT (cb.from_email ~ '^[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$'
-              OR cb.from_email ~ '^("[^"\\]*"|([A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+\.?([[:space:]]+[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+\.?)*)?)[[:space:]]*<[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*>[[:space:]]*$') THEN 'BLOCK: from address unparsed'
+              OR cb.from_email ~ '^("[^"\\]*"|([A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+\.?([ \t]+[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+\.?)*)?)[ \t]*<[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+(\.[A-Za-z0-9!#$%&''*+/=?^_`{|}~-]+)*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*>[ \t]*$') THEN 'BLOCK: from address unparsed'
     WHEN NOT EXISTS (SELECT 1 FROM b, unnest(b.from_domains) AS d
                      WHERE b.slug = cb.brand AND d <> ''
                        AND (cb.dom = lower(d) OR right(cb.dom, length(d) + 1) = '.' || lower(d))) THEN 'BLOCK: from domain'
