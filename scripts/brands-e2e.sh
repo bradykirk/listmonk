@@ -15,8 +15,12 @@
 #   LM_PASS  super admin API token
 #   LM_LOG   path of the server log (needed for steps 7 and 8)
 #
-# The instance must have an SMTP server that refuses connections (or none), so
-# that no real mail leaves the machine. Use @example.com addresses only.
+#   LM_SMTP_CAPTURE  optional file written by the local sink (see --smtp-sink below).
+#                    The instance SMTP host must be 127.0.0.1 and the sink's port, with
+#                    auth and TLS off. Unset: the opt-in mail checks are reported SKIP.
+#
+# The instance SMTP must be a closed port or the local sink, so no real mail
+# leaves the machine. Use @example.com addresses only.
 #
 # Usage: LM_USER=... LM_PASS=... LM_LOG=/path/server.log bash scripts/brands-e2e.sh
 
@@ -24,14 +28,52 @@ LM_URL=${LM_URL:-http://localhost:9000}
 LM_URL=${LM_URL%/}
 LM_LOG=${LM_LOG:-}
 
+# Helper mode: a local SMTP sink. It accepts mail and appends each decoded
+# message to FILE, so the run can inspect opt-in mails. Nothing leaves the machine.
+#   bash scripts/brands-e2e.sh --smtp-sink PORT FILE
+if [ "${1:-}" = "--smtp-sink" ]; then
+  exec python3 -I - "$2" "$3" <<'PYEOF'
+import socketserver, sys, email, email.policy
+port, path = int(sys.argv[1]), sys.argv[2]
+class H(socketserver.StreamRequestHandler):
+    def handle(self):
+        w = lambda t: (self.wfile.write((t + "\r\n").encode()), self.wfile.flush())
+        w("220 sink ESMTP")
+        data, buf = False, []
+        for raw in self.rfile:
+            line = raw.decode("utf-8", "replace")
+            if data:
+                if line.rstrip("\r\n") == ".":
+                    msg = email.message_from_bytes(("\r\n".join(buf)).encode(), policy=email.policy.default)
+                    parts = [str(msg["To"])]
+                    for part in msg.walk():
+                        if part.get_content_maintype() == "text":
+                            parts.append(part.get_content())
+                    with open(path, "a") as f:
+                        f.write("=====MESSAGE=====\n" + "\n".join(parts) + "\n")
+                    data, buf = False, []
+                    w("250 OK")
+                else:
+                    buf.append(line.rstrip("\r\n"))
+                continue
+            c = line.strip().upper()
+            if c.startswith("EHLO"): w("250 sink")
+            elif c.startswith("DATA"): data = True; w("354 go")
+            elif c.startswith("QUIT"): w("221 bye"); return
+            else: w("250 OK")
+class S(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+S(("127.0.0.1", port), H).serve_forever()
+PYEOF
+fi
+
 for bin in curl jq; do
   command -v "$bin" >/dev/null 2>&1 || { echo "missing required tool: $bin"; exit 2; }
 done
 [ -n "${LM_USER:-}" ] && [ -n "${LM_PASS:-}" ] || { echo "set LM_USER and LM_PASS"; exit 2; }
-case "$LM_URL" in
-  http://localhost:*|http://127.0.0.1:*|http://localhost|http://127.0.0.1) ;;
-  *) echo "refusing to run against a non-local URL: $LM_URL"; exit 2 ;;
-esac
+if ! printf '%s' "$LM_URL" | grep -Eq '^http://(localhost|127\.0\.0\.1)(:[0-9]+)?$'; then
+  echo "refusing to run against a non-local URL: $LM_URL"; exit 2
+fi
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -197,6 +239,9 @@ admin POST /api/lists "$(list_json "t2-$RUN" '["ta"]' double)";  T2=$(jget .data
 if [ -z "$R1" ] || [ "$R1" = "null" ] || [ -z "$T1" ] || [ "$T1" = "null" ] || [ "$R2" = "null" ] || [ "$T2" = "null" ]; then
   echo "could not create lists: $BODY"; exit 2
 fi
+for v in R2 T2; do
+  eval "id=\$$v"; admin GET "/api/lists/$id"; eval "${v}_UUID=\$(jget .data.uuid)"
+done
 pass "created lists r1=$R1 t1=$T1 r2=$R2 t2=$T2"
 
 mk_sub() { # EMAIL LISTS_JSON
@@ -260,13 +305,21 @@ admin GET "/api/campaigns/$CM";                                expect "all brand
 # ---------- step 3: lists [] ----------
 
 echo "== step 3: ta view, PUT lists [] keeps the ri subscription"
+[ -n "${LM_SMTP_CAPTURE:-}" ] && : > "$LM_SMTP_CAPTURE"
 BRAND=ta req PUT "/api/subscribers/$S" "$(jq -nc --arg e "s-$RUN@example.com" '{email:$e, name:"E2E Sub", status:"enabled", lists:[]}')"
 expect "ta: PUT subscriber with lists [] -> 200" 200
-AFTER=$(sub_lists "$S")
-if printf '%s' "$AFTER" | grep -q "^\(.*,\)\?$R1:" && printf '%s' "$AFTER" | grep -q "$R2:unconfirmed"; then
-  pass "ri subscriptions (r1, r2) unchanged after ta lists []"
+admin GET "/api/subscribers/$S"
+jq_ok "ri subscriptions unchanged after ta lists []: r1 confirmed, r2 unconfirmed" \
+  '([.data.lists[] | select(.id == $r1) | .subscription_status] == ["confirmed"]) and ([.data.lists[] | select(.id == $r2) | .subscription_status] == ["unconfirmed"])' \
+  --argjson r1 "$R1" --argjson r2 "$R2"
+jq_ok "ta subscriptions were removed by lists [] (control: the call did run)" \
+  '[.data.lists[] | select(.id == $t1 or .id == $t2)] | length == 0' --argjson t1 "$T1" --argjson t2 "$T2"
+# PUT lists [] in a brand view must not send an opt-in mail for the other brand's list.
+if [ -n "${LM_SMTP_CAPTURE:-}" ]; then
+  sleep 2
+  if ! grep -qF "$R2_UUID" "$LM_SMTP_CAPTURE" 2>/dev/null; then pass "ta: PUT lists [] sent no opt-in mail for the ri list r2"; else fail "ta: PUT lists [] sent no opt-in mail for the ri list r2" "r2 uuid found in captured mail"; fi
 else
-  fail "ri subscriptions (r1, r2) unchanged after ta lists []" "before=$SUBS_BEFORE after=$AFTER"
+  echo "SKIP  ta: PUT lists [] sends no opt-in mail for r2 (LM_SMTP_CAPTURE not set; manual)"
 fi
 # Restore the ta subscriptions the previous call removed.
 admin PUT /api/subscribers/lists "$(jq -nc --argjson i "[$S]" --argjson l "[$T1]" '{ids:$i, action:"add", target_list_ids:$l, status:"confirmed"}')"
@@ -287,7 +340,7 @@ expect_msg "ta: bulk DELETE subscribers -> 400" 400 "Delete is a global action. 
 # ---------- step 5: restricted API user ----------
 
 echo "== step 5: a user with read-only access to r1"
-admin POST /api/roles/users "$(jq -nc --arg n "e2e-role-$RUN" '{name:$n, permissions:["subscribers:get"]}')"
+admin POST /api/roles/users "$(jq -nc --arg n "e2e-role-$RUN" '{name:$n, permissions:["subscribers:get","subscribers:manage"]}')"
 UROLE=$(jget .data.id)
 admin POST /api/roles/lists "$(jq -nc --arg n "e2e-lrole-$RUN" --argjson r "$R1" '{name:$n, lists:[{id:$r, permissions:["list:get"]}]}')"
 LROLE=$(jget .data.id)
@@ -309,17 +362,29 @@ else
   lim GET "/api/lists/$T1";                                        expect "limited, no header: GET t1 -> 403" 403
   BRAND=ri lim GET "/api/lists/$R1";                               expect "limited, ri header: GET r1 -> 200 (header grants nothing, takes nothing)" 200
 
-  # A read-only user with lists [] changes nothing, in any view.
+  # A user with subscribers:manage but only read rights on r1, sending lists [] in
+  # each view. The route allows it, so the handler decides; nothing may change.
   PUTBODY=$(jq -nc --arg e "s-$RUN@example.com" '{email:$e, name:"E2E Sub", status:"enabled", lists:[]}')
-  BRAND=ri lim PUT "/api/subscribers/$S" "$PUTBODY"
-  BRAND=ta lim PUT "/api/subscribers/$S" "$PUTBODY"
-  lim PUT "/api/subscribers/$S" "$PUTBODY"
-  AFTER=$(sub_lists "$S")
-  if [ "$AFTER" = "$SUBS_BEFORE" ]; then
-    pass "read-only user, lists []: ri and ta subscriptions unchanged"
-  else
-    fail "read-only user, lists []: ri and ta subscriptions unchanged" "before=$SUBS_BEFORE after=$AFTER"
-  fi
+  SUBS_BEFORE=$(sub_lists "$S")
+  for view in ri ta none; do
+    if [ "$view" = "none" ]; then BRAND="" lim PUT "/api/subscribers/$S" "$PUTBODY"; else BRAND=$view lim PUT "/api/subscribers/$S" "$PUTBODY"; fi
+    case "$CODE" in
+      200|403) pass "manage-without-list-rights user, lists [], $view view: handler returned $CODE" ;;
+      *) fail "manage-without-list-rights user, lists [], $view view: unexpected $CODE" "$BODY" ;;
+    esac
+    if [ "$CODE" = "403" ] && ! printf '%s' "$BODY" | grep -qi "permission"; then
+      fail "403 in $view view came from the handler" "$BODY"
+    fi
+    AFTER=$(sub_lists "$S")
+    if [ "$AFTER" = "$SUBS_BEFORE" ]; then
+      pass "manage-without-list-rights user, lists [], $view view: subscriptions unchanged"
+    else
+      fail "manage-without-list-rights user, lists [], $view view: subscriptions unchanged" "before=$SUBS_BEFORE after=$AFTER"
+      # Restore so the later checks keep their data.
+      admin PUT /api/subscribers/lists "$(jq -nc --argjson i "[$S]" --argjson l "[$R1,$T1]" '{ids:$i, action:"add", target_list_ids:$l, status:"confirmed"}')"
+      admin PUT /api/subscribers/lists "$(jq -nc --argjson i "[$S]" --argjson l "[$R2,$T2]" '{ids:$i, action:"add", target_list_ids:$l, status:"unconfirmed"}')"
+    fi
+  done
 fi
 
 # ---------- step 6: mixed-list campaign ----------
@@ -377,12 +442,33 @@ jq_ok "ext_brand=ta: export has only the 2 ta subscriptions" '(.subscriptions | 
 jq_ok "ext_brand=ta: export has only the view of B, profile present" '(.campaign_views | length) == 1 and (.campaign_views[0].campaign | startswith("B-")) and (.profile | length) > 0'
 
 echo "== task 8: opt-in scope"
-# SMTP refuses connections, so the call can return 500. The check is that the
-# ri subscription stays unconfirmed and the ta call touches nothing else.
-BRAND=ta req POST "/api/subscribers/$S/optin"
-if [ "$CODE" = "200" ] || [ "$CODE" = "500" ]; then pass "ta: POST optin returns 200 or 500 (SMTP is closed), got $CODE"; else fail "ta: POST optin" "HTTP $CODE: $BODY"; fi
+# S is unconfirmed on r2 (ri, double opt-in) and t2 (ta, double opt-in). In the ta
+# view the opt-in mail may cover t2 only. The mail carries the list UUIDs in its
+# confirmation URL (private list names are hidden in the mail text).
+T2_UUID_VAL=$T2_UUID
+if [ -n "${LM_SMTP_CAPTURE:-}" ]; then
+  : > "$LM_SMTP_CAPTURE"
+  BRAND=ta req POST "/api/subscribers/$S/optin"
+  expect "ta: POST optin -> 200" 200
+  sleep 2
+  if grep -qF "$T2_UUID_VAL" "$LM_SMTP_CAPTURE" && ! grep -qF "$R2_UUID" "$LM_SMTP_CAPTURE"; then
+    pass "ta: opt-in mail covers t2 and not r2"
+  else
+    fail "ta: opt-in mail covers t2 and not r2" "captured: $(grep -c 'l=' "$LM_SMTP_CAPTURE") mail lines with l=; t2 present: $(grep -cF "$T2_UUID_VAL" "$LM_SMTP_CAPTURE"), r2 present: $(grep -cF "$R2_UUID" "$LM_SMTP_CAPTURE")"
+  fi
+  : > "$LM_SMTP_CAPTURE"
+  admin POST "/api/subscribers/$S/optin"
+  sleep 2
+  if grep -qF "$T2_UUID_VAL" "$LM_SMTP_CAPTURE" && grep -qF "$R2_UUID" "$LM_SMTP_CAPTURE"; then
+    pass "all brands: opt-in mail covers both r2 and t2 (control)"
+  else
+    fail "all brands: opt-in mail covers both r2 and t2 (control)" "t2: $(grep -cF "$T2_UUID_VAL" "$LM_SMTP_CAPTURE"), r2: $(grep -cF "$R2_UUID" "$LM_SMTP_CAPTURE")"
+  fi
+else
+  echo "SKIP  ta: opt-in mail covers t2 only (LM_SMTP_CAPTURE not set; check manually with a mail sink)"
+fi
 AFTER=$(sub_lists "$S")
-if [ "$AFTER" = "$SUBS_BEFORE" ]; then pass "optin in ta view leaves all subscriptions unchanged (r2 stays unconfirmed)"; else fail "optin in ta view leaves all subscriptions unchanged" "before=$SUBS_BEFORE after=$AFTER"; fi
+if [ "$AFTER" = "$SUBS_BEFORE" ]; then pass "opt-in calls leave subscriptions unchanged"; else fail "opt-in calls leave subscriptions unchanged" "before=$SUBS_BEFORE after=$AFTER"; fi
 
 # ---------- extra: export, header conflict ----------
 
