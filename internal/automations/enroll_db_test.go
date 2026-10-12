@@ -146,3 +146,58 @@ func TestIntentPendingOptinKeptThenExpired(t *testing.T) {
 		t.Fatal("an intent older than 7 days must be deleted")
 	}
 }
+
+func TestSweepIntentsBatchLimit(t *testing.T) {
+	db := testDB(t)
+	s, l, _ := setupEnabled(t, db, "single")
+	for i := 0; i < sweepBatch+5; i++ {
+		email := fmt.Sprintf("b%d@example.com", i)
+		ids, _ := s.BeginIntents(email, []int{l})
+		mkSub(t, db, email, l, "unconfirmed")
+		db.MustExec(`UPDATE ext.automation_intents SET created_at = now() - interval '3 minutes' WHERE id = $1`, ids[0])
+	}
+	n, err := s.SweepIntents(2*time.Minute, 7*24*time.Hour)
+	if err != nil || n != sweepBatch {
+		t.Fatalf("first sweep: %d %v", n, err)
+	}
+	var left int
+	db.Get(&left, `SELECT COUNT(*) FROM ext.automation_intents`)
+	if left != 5 {
+		t.Fatalf("left %d, want 5", left)
+	}
+	if n, _ := s.SweepIntents(2*time.Minute, 7*24*time.Hour); n != 5 {
+		t.Fatalf("second sweep: %d", n)
+	}
+}
+
+// One failing intent must not block the others; the first error is returned after the loop.
+func TestSweepIntentsContinuesAfterError(t *testing.T) {
+	db := testDB(t)
+	s, l, _ := setupEnabled(t, db, "single")
+	bad, _ := s.BeginIntents("bad@example.com", []int{l})
+	good, _ := s.BeginIntents("good@example.com", []int{l})
+	mkSub(t, db, "bad@example.com", l, "unconfirmed")
+	mkSub(t, db, "good@example.com", l, "unconfirmed")
+	db.MustExec(`UPDATE ext.automation_intents SET created_at = now() - interval '3 minutes'`)
+	// Make only the bad intent fail: enrolling it violates a trigger.
+	db.MustExec(`CREATE OR REPLACE FUNCTION ext.fail_bad() RETURNS trigger AS $$
+		BEGIN IF NEW.subscriber_id = (SELECT id FROM subscribers WHERE email='bad@example.com') THEN RAISE EXCEPTION 'boom'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`)
+	db.MustExec(`CREATE TRIGGER fail_bad BEFORE INSERT ON ext.automation_enrollments FOR EACH ROW EXECUTE FUNCTION ext.fail_bad()`)
+	t.Cleanup(func() {
+		db.Exec(`DROP TRIGGER IF EXISTS fail_bad ON ext.automation_enrollments`)
+		db.Exec(`DROP FUNCTION IF EXISTS ext.fail_bad()`)
+	})
+	n, err := s.SweepIntents(2*time.Minute, 7*24*time.Hour)
+	if err == nil || n != 1 {
+		t.Fatalf("want n=1 and an error, got %d %v", n, err)
+	}
+	var left int
+	db.Get(&left, `SELECT COUNT(*) FROM ext.automation_intents WHERE id = $1`, good[0])
+	if left != 0 {
+		t.Fatal("the good intent must be resolved")
+	}
+	db.Get(&left, `SELECT COUNT(*) FROM ext.automation_intents WHERE id = $1`, bad[0])
+	if left != 1 {
+		t.Fatal("the bad intent stays")
+	}
+}

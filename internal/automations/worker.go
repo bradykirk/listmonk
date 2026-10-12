@@ -93,6 +93,13 @@ func (w *Worker) check(op string, err error) {
 }
 
 func (w *Worker) process(c *Claimed) {
+	// A panic in one enrollment must not kill the process. The row stays as it is;
+	// a row in "sending" becomes "unknown" through the stale rule.
+	defer func() {
+		if r := recover(); r != nil {
+			w.log.Printf("automations: panic in step %d/%d: %v", c.AutomationID, c.Position, r)
+		}
+	}()
 	s := w.store
 	if !c.Enabled {
 		w.check("finish", s.Finish(c.ID, "skipped", "automation disabled"))

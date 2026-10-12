@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -116,5 +117,40 @@ func TestWorkerBlocklistedSkips(t *testing.T) {
 	NewWorker(s, d, log.New(io.Discard, "", 0)).Tick()
 	if sent != 0 || status(t, db) != "skipped" {
 		t.Fatal(status(t, db))
+	}
+}
+
+func TestWorkerRecoversFromPanic(t *testing.T) {
+	db, s, _, _ := claimSetup(t)
+	var l int
+	db.Get(&l, `SELECT list_id FROM ext.automations LIMIT 1`)
+	second := mkSub(t, db, "w2@example.com", l, "confirmed")
+	if ok, _, _ := s.Enroll(second, l); !ok {
+		t.Fatal("enroll second")
+	}
+	sent := 0
+	d := depsWith(&sent, "Welcome", nil, nil)
+	calls := 0
+	d.Render = func(int, int) (Message, error) {
+		calls++
+		if calls == 1 {
+			panic("boom")
+		}
+		return fakeMsg{"Welcome", nil, &sent}, nil
+	}
+	var buf strings.Builder
+	w := NewWorker(s, d, log.New(&buf, "", 0))
+	w.Tick() // must return
+	if sent != 1 {
+		t.Fatalf("the second enrollment must still be sent, sent %d", sent)
+	}
+	var sending, done int
+	db.Get(&sending, `SELECT COUNT(*) FROM ext.automation_enrollments WHERE status='sending'`)
+	db.Get(&done, `SELECT COUNT(*) FROM ext.automation_enrollments WHERE status='done'`)
+	if sending != 1 || done != 1 {
+		t.Fatalf("sending %d done %d", sending, done)
+	}
+	if !strings.Contains(buf.String(), "automations: panic in step") || !strings.Contains(buf.String(), "boom") {
+		t.Fatalf("log: %q", buf.String())
 	}
 }

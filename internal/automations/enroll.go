@@ -3,6 +3,7 @@ package automations
 import (
 	"database/sql"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -217,18 +218,35 @@ func (s *Store) ResolveIntents(ids []int64) (int, error) {
 	return total, nil
 }
 
-// SweepIntents deletes intents older than maxAge, then resolves those older than minAge.
+// sweepBatch is the most intents one SweepIntents call resolves.
+const sweepBatch = 100
+
+// SweepIntents deletes intents older than maxAge, then resolves at most sweepBatch of those
+// older than minAge. One failing intent does not stop the others; the first error is
+// returned after the loop.
 func (s *Store) SweepIntents(minAge, maxAge time.Duration) (enrolled int, err error) {
 	if _, err := s.db.Exec(`DELETE FROM ext.automation_intents WHERE created_at < now() - make_interval(secs => $1)`,
 		maxAge.Seconds()); err != nil {
 		return 0, err
 	}
 	var ids []int64
-	if err := s.db.Select(&ids, `SELECT id FROM ext.automation_intents WHERE created_at < now() - make_interval(secs => $1) ORDER BY id`,
-		minAge.Seconds()); err != nil {
+	if err := s.db.Select(&ids, `SELECT id FROM ext.automation_intents WHERE created_at < now() - make_interval(secs => $1) ORDER BY id LIMIT $2`,
+		minAge.Seconds(), sweepBatch); err != nil {
 		return 0, err
 	}
-	return s.ResolveIntents(ids)
+	var first error
+	for _, id := range ids {
+		n, err := s.resolveOne(id)
+		if err != nil {
+			log.Printf("automations: resolve intent %d: %v", id, err)
+			if first == nil {
+				first = err
+			}
+			continue
+		}
+		enrolled += n
+	}
+	return enrolled, first
 }
 
 // ListIDsByUUID maps list UUIDs to list ids. Unknown UUIDs are skipped.
