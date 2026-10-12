@@ -148,9 +148,9 @@ enrolled_count() {
   jget '.data.counts.enrolled'
 }
 
-list_json() { # NAME TAGS_JSON TYPE
-  jq -nc --arg n "$1" --argjson t "$2" --arg ty "$3" \
-    '{name:$n, type:$ty, optin:"single", tags:$t, description:""}'
+list_json() { # NAME TAGS_JSON TYPE [OPTIN, default single]
+  jq -nc --arg n "$1" --argjson t "$2" --arg ty "$3" --arg o "${4:-single}" \
+    '{name:$n, type:$ty, optin:$o, tags:$t, description:""}'
 }
 
 # camp_put [key=value ...]: the step campaign PUT body. Defaults are a valid
@@ -399,6 +399,66 @@ n=$(wait_mail "$E4" 1 60 "$CUUID")
 sleep 2
 all=$(mail_count "$E4")
 if [ "$n" = "1" ] && [ "$all" = "1" ]; then pass "one mail to existing $E4 after the form"; else fail "one mail to existing $E4 after the form" "with header: $n, all: $all"; fi
+
+# ---------- 8b: double opt-in list ----------
+
+echo "== 8b: public form on a double opt-in list"
+admin POST /api/lists "$(list_json "doi-e2e-$RUN" '["ri"]' public double)"; DL=$(jget .data.id); DL_UUID=$(jget .data.uuid)
+[ -n "$DL" ] && [ "$DL" != "null" ] || { echo "could not create the double opt-in list: $BODY"; exit 2; }
+admin POST /api/ext/automations "$(jq -nc --arg n "doi-e2e-$RUN" --argjson l "$DL" '{name:$n, list_id:$l}')"
+expect "create the double opt-in automation -> 200" 200
+DAID=$(jget .data.id)
+[ -n "$DAID" ] && [ "$DAID" != "null" ] || { echo "could not create the double opt-in automation: $BODY"; exit 2; }
+admin GET "/api/ext/automations/$DAID"
+DCID=$(jget '.data.steps[0].campaign_id')
+admin GET "/api/campaigns/$DCID"
+DCUUID=$(jget .data.uuid)
+admin PUT "/api/campaigns/$DCID" "$(camp_put "lists=[$DL]")"
+expect "double opt-in step campaign: set the email -> 200" 200
+admin PUT "/api/ext/automations/$DAID" "$(jq -nc --arg n "doi-e2e-$RUN" '{name:$n, enabled:true, steps:[{position:1, delay_minutes:0}]}')"
+expect "double opt-in automation: enable -> 200" 200
+
+E5="e2e5-$RUN@example.com"
+form "$E5" "$DL_UUID"
+expect "public form for $E5 on the double opt-in list -> 200" 200
+n=$(wait_mail "$E5" 1 30)
+if [ "$n" -ge 1 ]; then pass "the opt-in mail to $E5 arrived"; else fail "the opt-in mail to $E5 arrived" "mails: $n"; fi
+sleep 45
+n=$(mail_count "$E5" "$DCUUID")
+if [ "$n" = "0" ]; then pass "no welcome mail to $E5 before the opt-in confirm"; else fail "no welcome mail to $E5 before the opt-in confirm" "welcome mails: $n"; fi
+# The opt-in link is in the opt-in mail: /subscription/optin/<sub uuid>?l=<list uuid>.
+OPTIN_PATH=$(python3 -I - "$LM_SMTP_CAPTURE" "$E5" <<'PYEOF'
+import re, sys
+path, addr = sys.argv[1], sys.argv[2].lower()
+for m in open(path, encoding="utf-8", errors="replace").read().split("=====MESSAGE=====\n")[1:]:
+    lines = m.split("\n")
+    if addr not in lines[0].lower() or lines[1].startswith("X-Listmonk-Campaign: "):
+        continue
+    f = re.search(r'/subscription/optin/[0-9a-f-]{36}[^"\s<>]*', m)
+    if f:
+        print(f.group(0).replace("&amp;", "&"))
+        break
+PYEOF
+)
+if [ -n "$OPTIN_PATH" ]; then pass "found the opt-in link in the opt-in mail"; else fail "found the opt-in link in the opt-in mail" "no /subscription/optin/ link for $E5"; fi
+confirm_optin() { # POST the confirm form of the opt-in page. Sets CODE.
+  CODE=$(curl -sS -m 60 -o "$TMP/body" -w '%{http_code}' -X POST --data 'confirm=true' "$LM_URL$OPTIN_PATH" 2>"$TMP/err") || CODE="000"
+  BODY=$(head -c 400 "$TMP/body" 2>/dev/null)
+}
+confirm_optin
+expect "confirm the opt-in -> 200" 200
+n=$(wait_mail "$E5" 1 60 "$DCUUID")
+sleep 2
+n=$(mail_count "$E5" "$DCUUID")
+if [ "$n" = "1" ]; then pass "exactly one welcome mail to $E5 after the opt-in confirm"; else fail "exactly one welcome mail to $E5 after the opt-in confirm" "welcome mails: $n"; fi
+confirm_optin
+expect "confirm the opt-in again -> 200" 200
+n=$(wait_mail "$E5" 2 45 "$DCUUID")
+if [ "$n" = "1" ]; then pass "no second welcome mail to $E5 after the second confirm"; else fail "no second welcome mail to $E5 after the second confirm" "welcome mails: $n"; fi
+admin PUT "/api/ext/automations/$DAID" "$(jq -nc --arg n "doi-e2e-$RUN" '{name:$n, enabled:false, steps:[{position:1, delay_minutes:0}]}')"
+expect "double opt-in automation: disable -> 200" 200
+admin DELETE "/api/ext/automations/$DAID"
+expect "double opt-in automation: delete -> 200" 200
 
 # ---------- 9: disable and delete ----------
 
