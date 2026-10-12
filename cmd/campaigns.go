@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/knadh/listmonk/internal/auth"
+	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/internal/notifs"
 	"github.com/knadh/listmonk/models"
 	"github.com/labstack/echo/v4"
@@ -81,7 +82,7 @@ func (a *App) GetCampaigns(c echo.Context) error {
 	)
 
 	// Query and retrieve campaigns from the DB.
-	res, total, err := a.core.QueryCampaigns(query, status, tags, orderBy, order, hasAllPerm, permittedLists, pg.Offset, pg.Limit)
+	res, total, err := a.core.QueryCampaigns(query, status, tags, orderBy, order, hasAllPerm, permittedLists, pg.Offset, pg.Limit, brandListsOrNil(c)) // FORK(hcm)
 	if err != nil {
 		return err
 	}
@@ -259,6 +260,11 @@ func (a *App) CreateCampaign(c echo.Context) error {
 		return err
 	}
 
+	// FORK(hcm): every requested list must belong to the selected brand.
+	if err := a.listsInBrand(c, o.ListIDs); err != nil {
+		return err
+	}
+
 	// Filter lists against the current user's permitted lists.
 	user := auth.GetUser(c)
 	o.ListIDs = user.FilterListsByPerm(auth.PermTypeGet|auth.PermTypeManage, o.ListIDs)
@@ -329,6 +335,11 @@ func (a *App) UpdateCampaign(c echo.Context) error {
 	// that are not in the request retain the old values.
 	o := campReq{Campaign: cm}
 	if err := c.Bind(&o); err != nil {
+		return err
+	}
+
+	// FORK(hcm): every requested list must belong to the selected brand.
+	if err := a.listsInBrand(c, o.ListIDs); err != nil {
 		return err
 	}
 
@@ -477,7 +488,7 @@ func (a *App) DeleteCampaigns(c echo.Context) error {
 	}
 
 	// Delete the campaigns from the DB.
-	if err := a.core.DeleteCampaigns(ids, query, hasAllPerm, permittedLists); err != nil {
+	if err := a.core.DeleteCampaigns(ids, query, hasAllPerm, permittedLists, brandListsOrNil(c)); err != nil { // FORK(hcm)
 		return err
 	}
 
@@ -494,6 +505,20 @@ func (a *App) GetRunningCampaignStats(c echo.Context) error {
 
 	if len(out) == 0 {
 		return c.JSON(http.StatusOK, okResp{[]struct{}{}})
+	}
+
+	// FORK(hcm): with a brand selected, keep only the brand's campaigns.
+	if _, _, ok := brands.BrandFrom(c); ok {
+		var kept []models.CampaignStats
+		for _, st := range out {
+			if a.campaignInBrand(c, st.ID) == nil {
+				kept = append(kept, st)
+			}
+		}
+		out = kept
+		if len(out) == 0 {
+			return c.JSON(http.StatusOK, okResp{[]struct{}{}})
+		}
 	}
 
 	// Compute rate.
@@ -932,6 +957,11 @@ func (a *App) makeOptinCampaignMessage(o campReq) (campReq, error) {
 // Either the user has blanket get_all/manage_all permissions, or the campaign
 // belongs to lists that the user has access to.
 func (a *App) checkCampaignPerm(types auth.PermType, id int, c echo.Context) error {
+	// FORK(hcm): brand scope applies even to *_all permissions.
+	if err := a.campaignInBrand(c, id); err != nil {
+		return err
+	}
+
 	// Get the authenticated user.
 	user := auth.GetUser(c)
 

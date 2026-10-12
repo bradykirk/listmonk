@@ -84,6 +84,14 @@ WHERE ($1 = 0 OR id = $1)
             SELECT 1 FROM campaign_lists WHERE campaign_id = c.id AND list_id = ANY($6::INT[])
         )
     )
+    -- FORK(hcm): brand scope. NULL = no brand selected.
+    AND ($9::INT[] IS NULL OR (
+        EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = c.id)
+        AND NOT EXISTS (
+            SELECT 1 FROM campaign_lists x
+            WHERE x.campaign_id = c.id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($9::INT[])))
+        )
+    ))
 ORDER BY %order% OFFSET $7 LIMIT (CASE WHEN $8 < 1 THEN NULL ELSE $8 END);
 
 -- name: get-campaign
@@ -601,7 +609,15 @@ AND (
     $3 OR EXISTS (
         SELECT 1 FROM campaign_lists WHERE campaign_id = c.id AND list_id = ANY($4::INT[])
     )
-);
+)
+-- FORK(hcm): brand scope. NULL = no brand selected.
+AND ($5::INT[] IS NULL OR (
+    EXISTS (SELECT 1 FROM campaign_lists x WHERE x.campaign_id = c.id)
+    AND NOT EXISTS (
+        SELECT 1 FROM campaign_lists x
+        WHERE x.campaign_id = c.id AND (x.list_id IS NULL OR NOT (x.list_id = ANY($5::INT[])))
+    )
+));
 
 -- name: register-campaign-view
 WITH view AS (
