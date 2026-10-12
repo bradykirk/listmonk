@@ -129,13 +129,14 @@ export default Vue.extend({
     payload() {
       const { brand, ...rest } = { ...this.form, brand: this.brand };
       const sel = this.brands.find((b) => b.slug === brand);
-      if (!sel) {
+      if (!sel && !(this.isEditing && brand === '')) {
         return rest;
       }
+      // Strip every brand list tag. "Unassigned" on edit keeps none; a brand adds its first.
       const all = new Set();
       this.brands.forEach((b) => (b.list_tags || []).forEach((t) => all.add(t)));
       const tags = (rest.tags || []).filter((t) => !all.has(t));
-      if (sel.list_tags && sel.list_tags.length > 0) {
+      if (sel && sel.list_tags && sel.list_tags.length > 0) {
         tags.push(sel.list_tags[0]);
       }
       return { ...rest, tags };
