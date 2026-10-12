@@ -619,9 +619,10 @@ SQL script.
 **Dry run.** `scripts/brands-dryrun.sql` is one read-only SELECT. Run it with psql on
 production before the deploy. It shows the brand of each list, the brand or `BLOCK`
 reason of each draft, scheduled, running and paused campaign, and the template seed
-owners. Campaign rows apply all three guard rules: one brand (lists), messenger
-(`BLOCK: messenger`) and from domain (`BLOCK: from domain`, suffix match, empty
-`from_domains` blocks). No running or scheduled campaign may show any `BLOCK`. The
+owners. Campaign rows apply all four guard checks: one brand (lists), messenger
+(`BLOCK: messenger`), from address parse (`BLOCK: from address unparsed`: anchored
+regex for a bare address or a name-addr form, stricter than `net/mail.ParseAddress`) and
+from domain (`BLOCK: from domain`, suffix match, empty `from_domains` blocks). No running or scheduled campaign may show any `BLOCK`. The
 `privilege` row (`CREATE` on the database) must be `true`, because `Bootstrap` runs
 `CREATE SCHEMA IF NOT EXISTS ext` and the app exits without it.
 
@@ -662,7 +663,7 @@ marked lines.
 | `cmd/init.go` | Wrap the manager store with `brands.WrapManagerStore` (the send guard: messenger, from domain, brand lists). |
 | `cmd/handlers.go` | Add the `X-Listmonk-Brand` CORS header. Add `a.brands.Middleware` after the auth-error check. Register `/api/ext/*` routes. At startup log `unclassified routes` for any `/api` route without a brand class. |
 | `cmd/campaigns.go` | Brand list, template, archive template and media checks on create and update (`campaignRefsInBrand`). Brand filter on query and delete. Send guard before start or schedule and for test send. Brand scope applies even to `*_all` permissions. |
-| `cmd/lists.go` | `CreateList` in a brand view strips all brand tags and adds the selected brand's first list tag (`brands.ForceBrandTags`). |
+| `cmd/lists.go` | `CreateList` and `UpdateList` in a brand view strip all brand tags and add the selected brand's first list tag (`brands.ForceBrandTags`), so a list stays in the selected brand. All-brands behavior is unchanged. |
 | `cmd/subscribers.go` | Brand list checks on all list-taking endpoints. Refuse delete, blocklist and status change in a brand view. `ScopedPermittedLists` returns `{-1}` in a brand view. Brand-filtered activity and export. Opt-in hook mails only brand lists. |
 | `cmd/templates.go` | 404 outside the brand on by-id calls. Brand filter on list. Create with owner in one transaction. |
 | `cmd/media.go` | Brand filter on list. 404 outside the brand on by-id calls. Upload resolves the owner first and inserts media with its owner row. |

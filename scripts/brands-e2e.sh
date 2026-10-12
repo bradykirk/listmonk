@@ -606,6 +606,23 @@ admin DELETE "/api/subscribers/$S/bounces"
 admin GET "/api/subscribers/$S/bounces"
 if [ "$(jget '.data | length')" = "0" ]; then pass "all brands: DELETE subscriber bounces removes the rest"; else fail "all brands: DELETE subscriber bounces removes the rest" "$BODY"; fi
 
+# ---------- list update in a brand view keeps the list in the brand ----------
+
+echo "== list PUT in a brand view keeps the list in the brand"
+BRAND=ta req PUT "/api/lists/$T2" "$(list_json "t2-$RUN" '["ri","promo"]' double)"
+expect "ta: PUT list t2 with tags [ri, promo] -> 200" 200
+jq_ok "ta: PUT response keeps the list in ta (tags ta + promo, no ri)" \
+  '(.data.tags | index("ta")) != null and (.data.tags | index("ri")) == null and (.data.tags | index("promo")) != null'
+admin GET "/api/lists/$T2"
+jq_ok "stored list t2 is still tagged ta and not ri" \
+  '(.data.tags | index("ta")) != null and (.data.tags | index("ri")) == null'
+BRAND=ta req GET "/api/lists/$T2"; expect "ta: list t2 is still visible in ta" 200
+BRAND=ri req GET "/api/lists/$T2"; expect "ri: list t2 is not accessible in ri (403)" 403
+admin PUT "/api/lists/$T2" "$(list_json "t2-$RUN" '["ri"]' double)"
+expect "all brands: PUT list t2 with tags [ri] moves it (unchanged behavior)" 200
+admin PUT "/api/lists/$T2" "$(list_json "t2-$RUN" '["ta"]' double)"
+expect "all brands: restore list t2 to ta" 200
+
 # ---------- step 7: scheduled campaign is paused after a retag ----------
 
 echo "== step 7: scheduled campaign A is paused after r1 is retagged to ta"

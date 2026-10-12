@@ -10,7 +10,8 @@
 --
 -- The campaign rows apply all three send guard rules (spec 6.1): lists of one brand,
 -- messenger in the brand's messengers, from domain equal to or a subdomain of one of
--- the brand's from domains (empty from_domains blocks).
+-- the brand's from domains (empty from_domains blocks). A from address that
+-- net/mail.ParseAddress would reject shows as BLOCK: from address unparsed.
 -- No running or scheduled campaign may show any BLOCK. Fix a BLOCK row before the
 -- deploy, or the manager guard pauses that campaign.
 --   privilege one row: true if the current role can CREATE in this database. Bootstrap
@@ -38,6 +39,11 @@ SELECT 'campaign', cb.id, cb.name,
                  WHERE cl.campaign_id = cb.id AND COALESCE(cardinality(lb.brands), 0) <> 1) THEN 'BLOCK: unassigned/ambiguous/deleted list'
     WHEN (SELECT COUNT(DISTINCT lb.brands[1]) FROM campaign_lists cl JOIN lb ON lb.id = cl.list_id WHERE cl.campaign_id = cb.id) > 1 THEN 'BLOCK: mixed brands'
     WHEN NOT EXISTS (SELECT 1 FROM b WHERE b.slug = cb.brand AND cb.messenger = ANY(b.messengers)) THEN 'BLOCK: messenger'
+    -- net/mail.ParseAddress must accept the from address, or the guard blocks it. Strict
+    -- anchored forms only (over-blocking is the safe direction): bare address, or name-addr
+    -- with an unquoted or quoted display name.
+    WHEN NOT (cb.from_email ~ '^[^<>@[:space:],"]+@[^<>@[:space:],"]+$'
+              OR cb.from_email ~ '^("[^"]*"|[^<>@,"]*)[[:space:]]*<[^<>@[:space:]]+@[^<>@[:space:]]+>[[:space:]]*$') THEN 'BLOCK: from address unparsed'
     WHEN NOT EXISTS (SELECT 1 FROM b, unnest(b.from_domains) AS d
                      WHERE b.slug = cb.brand AND d <> ''
                        AND (cb.dom = lower(d) OR right(cb.dom, length(d) + 1) = '.' || lower(d))) THEN 'BLOCK: from domain'

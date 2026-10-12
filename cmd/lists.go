@@ -148,6 +148,20 @@ func (a *App) UpdateList(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.T("lists.invalidName"))
 	}
 
+	// FORK(hcm): in a brand view the list stays owned by the selected brand, so an
+	// update cannot move it to another brand or leave it unassigned (spec 5.6).
+	if b, _, ok := brands.BrandFrom(c); ok {
+		all, err := a.brands.Store.All()
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "error loading brands")
+		}
+		tags, err := brands.ForceBrandTags(l.Tags, b, all)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		l.Tags = tags
+	}
+
 	// Update the list in the DB.
 	out, err := a.core.UpdateList(id, l)
 	if err != nil {
