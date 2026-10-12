@@ -566,6 +566,11 @@ BRAND=ta req POST /api/templates "$(tpl_json "tpl-ta-$RUN")"
 expect "ta: POST template (owner = ta) -> 200" 200
 TT=$(jget .data.id)
 BRAND=ri req GET "/api/templates/$TT";                              expect "ri: GET ta template -> 404" 404
+BRAND=ri req GET "/api/campaigns/$CA/preview?template_id=$TT";      expect "ri: preview ri campaign with a ta template override -> 404" 404
+BRAND=ri req GET "/api/campaigns/$CA/preview?template_id=$TS";      expect "ri: preview ri campaign with a shared template override -> 200" 200
+BRAND=ri req GET "/api/campaigns/$CA/preview?template_id=$TR";      expect "ri: preview ri campaign with an ri template override -> 200" 200
+admin POST /api/ext/brands "$(jq -nc --arg m "$MESSENGER" '{slug:"tagchk", name:"Tag check", list_tags:["new brand"], messengers:[$m], from_domains:["example.org"]}')"
+expect_msg "POST brand with list tag \"new brand\" -> 400 names the stored form" 400 'is stored as "new-brand"'
 admin PUT "/api/ext/templates/$TR/brand" '{"brand":"nope"}';        expect "PUT template brand unknown -> 400" 400
 admin PUT "/api/ext/templates/$TR/brand" '{}';                      expect "PUT template brand with the key missing -> 400" 400
 admin PUT "/api/ext/templates/$TR/brand" '{"brand":null}';          expect "PUT template brand null (shared) -> 200" 200

@@ -31,7 +31,25 @@ func Validate(b *Brand) error {
 			return fmt.Errorf("invalid from_domains entry %q: use a bare lowercase domain such as example.com", d)
 		}
 	}
+	for _, t := range b.ListTags {
+		n := NormalizeListTag(t)
+		if n == "" {
+			return fmt.Errorf("invalid list_tags entry %q: a tag must not be empty", t)
+		}
+		if n != t {
+			return fmt.Errorf("list tag %q is stored as %q; use that", t, n)
+		}
+	}
 	return nil
+}
+
+var reSpaces = regexp.MustCompile(`[\s]+`)
+
+// NormalizeListTag is what core.normalizeTags stores for one list tag: it trims
+// the tag and turns every whitespace run into "-". It does not change case.
+// TestNormalizeListTagMatchesCore keeps it equal to the core function.
+func NormalizeListTag(t string) string {
+	return reSpaces.ReplaceAllString(strings.TrimSpace(t), "-")
 }
 
 // SharedOwner is the brand query value that creates a shared template or media file.

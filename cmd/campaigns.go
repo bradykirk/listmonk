@@ -156,6 +156,13 @@ func (a *App) PreviewCampaign(c echo.Context) error {
 		tplID = 0
 	}
 
+	// FORK(hcm): a template override must be visible to the selected brand.
+	if tplID > 0 {
+		if err := a.templateInBrand(c, tplID); err != nil {
+			return err
+		}
+	}
+
 	// Get the campaign from the DB for previewing with the `template_body` field.
 	camp, err := a.core.GetCampaignForPreview(id, tplID)
 	if err != nil {
@@ -210,6 +217,13 @@ func (a *App) PreviewCampaignArchive(c echo.Context) error {
 
 	// Fetch the campaign body from the DB.
 	tplID, _ := strconv.Atoi(c.FormValue("template_id"))
+	// FORK(hcm): a template override must be visible to the selected brand.
+	if tplID > 0 {
+		if err := a.templateInBrand(c, tplID); err != nil {
+			return err
+		}
+	}
+
 	camp, err := a.core.GetCampaignForPreview(id, tplID)
 	if err != nil {
 		return err
@@ -629,6 +643,13 @@ func (a *App) TestCampaign(c echo.Context) error {
 
 	// Get the campaign from the DB for previewing.
 	tplID, _ := strconv.Atoi(c.FormValue("template_id"))
+	// FORK(hcm): a template override must be visible to the selected brand.
+	if tplID > 0 {
+		if err := a.templateInBrand(c, tplID); err != nil {
+			return err
+		}
+	}
+
 	camp, err := a.core.GetCampaignForPreview(id, tplID)
 	if err != nil {
 		return err

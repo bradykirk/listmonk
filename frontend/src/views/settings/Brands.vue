@@ -85,12 +85,13 @@
             </b-field>
 
             <b-field label="List tags" label-position="on-border"
-              message="A list belongs to the brand when it has one of these tags. The first tag is added to new lists.">
+              message="A list belongs to the brand when it has one of these tags. The first tag is added to new lists. A tag must equal its stored form: no spaces (use a dash).">
               <b-taginput v-model="form.list_tags" name="list_tags" ellipsis icon="tag-outline" placeholder="List tags"
                 data-cy="brand-form-tags" />
             </b-field>
 
-            <b-field label="Messengers" message="Leave all unchecked to allow every messenger.">
+            <b-field label="Messengers"
+              message="Check every messenger this brand may use. An empty selection blocks every send for this brand, and the campaign manager pauses its scheduled campaigns.">
               <div class="block">
                 <b-checkbox v-for="m in messengerChoices" :key="m" v-model="form.messengers" :native-value="m">
                   {{ m }}
@@ -98,7 +99,8 @@
               </div>
             </b-field>
 
-            <b-field label="From domains" label-position="on-border">
+            <b-field label="From domains" label-position="on-border"
+              message="An empty list blocks every send for this brand, and the campaign manager pauses its scheduled campaigns.">
               <b-taginput v-model="form.from_domains" name="from_domains" ellipsis icon="tag-outline"
                 placeholder="example.com" data-cy="brand-form-domains" />
             </b-field>
