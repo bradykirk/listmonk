@@ -285,6 +285,11 @@ func main() {
 	// messages) get processed at the specified interval.
 	go mgr.Run()
 
+	// FORK(hcm): automations worker (welcome emails). The store is shared with App.
+	autoStore := automations.NewStore(db)
+	autoWorker := automations.NewWorker(autoStore, automationDeps(core, mgr, brandSvc, lo), lo)
+	go autoWorker.Run(context.Background(), 30*time.Second)
+
 	// =========================================================================
 	// Initialize the App{} with all the global shared components, controllers and fields.
 	app := &App{
@@ -325,7 +330,7 @@ func main() {
 		needsUserSetup: !hasUsers,
 
 		// FORK(hcm)
-		automations: automations.NewStore(db),
+		automations: autoStore,
 	}
 
 	// Star the update checker.

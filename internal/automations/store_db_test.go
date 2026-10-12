@@ -22,7 +22,7 @@ func TestCreateGetAll(t *testing.T) {
 		t.Fatalf("get: %+v %+v %v", got, steps, err)
 	}
 	all, err := s.All(nil)
-	if err != nil || len(all) != 1 {
+	if err != nil || len(all) != 1 || all[0].ListName != "TA" {
 		t.Fatalf("all nil: %v %v", all, err)
 	}
 	none, err := s.All([]int{})
@@ -92,5 +92,32 @@ func TestListChangeAfterEnrollment(t *testing.T) {
 	}
 	if err := s.Update(a.ID, "a", l2, nil); !errors.Is(err, ErrHasEnrollments) {
 		t.Fatalf("want ErrHasEnrollments, got %v", err)
+	}
+}
+
+func TestSentByCampaign(t *testing.T) {
+	db := testDB(t)
+	s := NewStore(db)
+	l := mkList(t, db, "TA", "single", "ta")
+	c := mkCampaign(t, db, l)
+	a, _ := s.Create("a", l, c)
+	if n, err := s.SentByCampaign(c); err != nil || n != 0 {
+		t.Fatalf("empty: %d %v", n, err)
+	}
+	for _, e := range []string{"a@example.com", "b@example.com"} {
+		sub := mkSub(t, db, e, l, "confirmed")
+		var enr int64
+		if err := db.Get(&enr, `INSERT INTO ext.automation_enrollments (automation_id, subscriber_id, status) VALUES ($1,$2,'done') RETURNING id`, a.ID, sub); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO ext.automation_sends (enrollment_id, position, campaign_id) VALUES ($1, 1, $2)`, enr, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := s.SentByCampaign(c); err != nil || n != 2 {
+		t.Fatalf("two sends: %d %v", n, err)
+	}
+	if n, err := s.SentByCampaign(c + 1000); err != nil || n != 0 {
+		t.Fatalf("other campaign: %d %v", n, err)
 	}
 }

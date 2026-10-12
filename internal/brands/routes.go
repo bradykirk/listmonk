@@ -156,6 +156,15 @@ var Routes = map[string]RouteClass{
 	"GET /api/analytics/domains":           BrandAware,
 	"GET /api/analytics/send-times":        BrandAware,
 
+	// BrandAware: automations. The handlers return 404 for an automation or
+	// list outside the selected brand.
+	"GET /api/ext/automations":         BrandAware,
+	"POST /api/ext/automations":        BrandAware,
+	"GET /api/ext/automations/:id":     BrandAware,
+	"PUT /api/ext/automations/:id":     BrandAware,
+	"DELETE /api/ext/automations/:id":  BrandAware,
+	"POST /api/ext/automations/enroll": BrandAware,
+
 	// Refused: delete.
 	"DELETE /api/subscribers/:id":        Refused,
 	"DELETE /api/subscribers":            Refused,

@@ -42,11 +42,12 @@ type Step struct {
 
 type Summary struct {
 	Automation
-	Enrolled int `db:"enrolled" json:"enrolled"`
-	Sent     int `db:"sent" json:"sent"`
-	Active   int `db:"active" json:"active"`
-	Failed   int `db:"failed" json:"failed"`
-	Unknown  int `db:"unknown" json:"unknown"`
+	ListName string `db:"list_name" json:"list_name"`
+	Enrolled int    `db:"enrolled" json:"enrolled"`
+	Sent     int    `db:"sent" json:"sent"`
+	Active   int    `db:"active" json:"active"`
+	Failed   int    `db:"failed" json:"failed"`
+	Unknown  int    `db:"unknown" json:"unknown"`
 }
 
 type StepOwnerInfo struct {
@@ -114,13 +115,13 @@ func (s *Store) All(listIDs []int) ([]Summary, error) {
 	}
 	out := []Summary{}
 	err := s.db.Select(&out, `
-SELECT a.*,
+SELECT a.*, l.name AS list_name,
   (SELECT COUNT(*) FROM ext.automation_enrollments e WHERE e.automation_id = a.id) AS enrolled,
   (SELECT COUNT(*) FROM ext.automation_sends s JOIN ext.automation_enrollments e ON e.id = s.enrollment_id WHERE e.automation_id = a.id) AS sent,
   (SELECT COUNT(*) FROM ext.automation_enrollments e WHERE e.automation_id = a.id AND e.status IN ('active','sending')) AS active,
   (SELECT COUNT(*) FROM ext.automation_enrollments e WHERE e.automation_id = a.id AND e.status = 'failed') AS failed,
   (SELECT COUNT(*) FROM ext.automation_enrollments e WHERE e.automation_id = a.id AND e.status = 'unknown') AS unknown
-FROM ext.automations a
+FROM ext.automations a JOIN lists l ON l.id = a.list_id
 WHERE ($1::INT[] IS NULL OR a.list_id = ANY($1::INT[]))
 ORDER BY a.id`, filter)
 	return out, err
@@ -213,6 +214,13 @@ WHERE s.campaign_id = $1`, campaignID)
 		return info, false, nil
 	}
 	return info, err == nil, err
+}
+
+// SentByCampaign returns the number of automation sends of the step campaign.
+func (s *Store) SentByCampaign(campaignID int) (int, error) {
+	var n int
+	err := s.db.Get(&n, `SELECT COUNT(*) FROM ext.automation_sends WHERE campaign_id=$1`, campaignID)
+	return n, err
 }
 
 func mapEnabledErr(err error) error {

@@ -89,3 +89,20 @@ func TestRoutesCoverHandlers(t *testing.T) {
 		}
 	}
 }
+
+// The automations API routes are BrandAware: the handlers filter by brand.
+func TestAutomationRoutes(t *testing.T) {
+	for _, k := range []string{
+		"GET /api/ext/automations",
+		"POST /api/ext/automations",
+		"GET /api/ext/automations/:id",
+		"PUT /api/ext/automations/:id",
+		"DELETE /api/ext/automations/:id",
+		"POST /api/ext/automations/enroll",
+	} {
+		m, p := split(k)
+		if got, _ := Classify(m, p); got != BrandAware {
+			t.Errorf("%s: got %v want BrandAware", k, got)
+		}
+	}
+}

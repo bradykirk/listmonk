@@ -212,6 +212,14 @@ func initHTTPHandlers(e *echo.Echo, a *App) {
 		g.PUT("/api/ext/media/:id/brand", pm(hasID(a.SetMediaBrand), "media:manage"))
 		g.GET("/api/ext/ownership", pm(a.GetOwnership, "templates:get"))
 
+		// FORK(hcm): automations (all BrandAware in internal/brands/routes.go).
+		g.GET("/api/ext/automations", pm(a.GetAutomations, "campaigns:get_all", "campaigns:get"))
+		g.POST("/api/ext/automations", pm(a.CreateAutomation, "campaigns:manage_all", "campaigns:manage"))
+		g.GET("/api/ext/automations/:id", pm(hasID(a.GetAutomation), "campaigns:get_all", "campaigns:get"))
+		g.PUT("/api/ext/automations/:id", pm(hasID(a.UpdateAutomation), "campaigns:manage_all", "campaigns:manage"))
+		g.DELETE("/api/ext/automations/:id", pm(hasID(a.DeleteAutomation), "campaigns:manage_all", "campaigns:manage"))
+		g.POST("/api/ext/automations/enroll", pm(a.EnrollAutomation, "subscribers:manage"))
+
 		g.DELETE("/api/maintenance/subscribers/:type", pm(a.GCSubscribers, "settings:maintain"))
 		g.DELETE("/api/maintenance/analytics/:type", pm(a.GCCampaignAnalytics, "settings:maintain"))
 		g.GET("/api/maintenance/analytics/:type/export", pm(a.ExportCampaignAnalytics, "settings:maintain"))
