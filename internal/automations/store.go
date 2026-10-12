@@ -152,6 +152,19 @@ func (s *Store) Update(id int, name string, listID int, steps []Step) error {
 	if _, err := tx.Exec(`UPDATE ext.automations SET name=$2, list_id=$3, updated_at=now() WHERE id=$1`, id, name, listID); err != nil {
 		return mapEnabledErr(err)
 	}
+	if cur != listID {
+		// The step campaigns follow the automation list (the send guard and the
+		// campaign editor read campaign_lists).
+		if _, err := tx.Exec(`DELETE FROM campaign_lists WHERE campaign_id IN
+			(SELECT campaign_id FROM ext.automation_steps WHERE automation_id=$1)`, id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO campaign_lists (campaign_id, list_id, list_name)
+			SELECT s.campaign_id, l.id, l.name FROM ext.automation_steps s, lists l
+			WHERE s.automation_id=$1 AND l.id=$2`, id, listID); err != nil {
+			return err
+		}
+	}
 	for _, st := range steps {
 		if _, err := tx.Exec(`UPDATE ext.automation_steps SET delay_minutes=$3 WHERE automation_id=$1 AND position=$2`,
 			id, st.Position, st.DelayMinutes); err != nil {

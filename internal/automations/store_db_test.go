@@ -121,3 +121,28 @@ func TestSentByCampaign(t *testing.T) {
 		t.Fatalf("other campaign: %d %v", n, err)
 	}
 }
+
+func TestListChangeMovesStepCampaigns(t *testing.T) {
+	db := testDB(t)
+	s := NewStore(db)
+	l := mkList(t, db, "TA", "single", "ta")
+	l2 := mkList(t, db, "TA2", "single", "ta")
+	c := mkCampaign(t, db, l)
+	a, _ := s.Create("a", l, c)
+	if err := s.Update(a.ID, "a", l2, nil); err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct {
+		ListID   int    `db:"list_id"`
+		ListName string `db:"list_name"`
+	}
+	if err := db.Select(&rows, `SELECT list_id, list_name FROM campaign_lists WHERE campaign_id=$1`, c); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ListID != l2 || rows[0].ListName != "TA2" {
+		t.Fatalf("campaign_lists: %+v", rows)
+	}
+	if info, ok, _ := s.StepOwner(c); !ok || info.ListID != l2 {
+		t.Fatalf("owner: %+v", info)
+	}
+}

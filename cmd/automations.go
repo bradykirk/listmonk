@@ -79,7 +79,7 @@ type autoCreateReq struct {
 type autoUpdateReq struct {
 	Name    string `json:"name"`
 	ListID  int    `json:"list_id"`
-	Enabled bool   `json:"enabled"`
+	Enabled *bool  `json:"enabled"` // Absent: the state does not change.
 	Steps   []struct {
 		Position     int `json:"position"`
 		DelayMinutes int `json:"delay_minutes"`
@@ -334,7 +334,11 @@ func (a *App) UpdateAutomation(c echo.Context) error {
 	}
 
 	// Enable rules (6.4, 6.5) are checked before any change is written.
-	if req.Enabled {
+	enable := cur.Enabled
+	if req.Enabled != nil {
+		enable = *req.Enabled
+	}
+	if enable {
 		user := auth.GetUser(c)
 		if !user.HasPerm(auth.PermCampaignsSend) {
 			return echo.NewHTTPError(http.StatusForbidden, "Sending permission (campaigns:send) is needed to enable an automation.")
@@ -347,7 +351,7 @@ func (a *App) UpdateAutomation(c echo.Context) error {
 	if err := a.automations.Update(id, req.Name, req.ListID, upd); err != nil {
 		return a.automationStoreErr(err)
 	}
-	if err := a.automations.SetEnabled(id, req.Enabled); err != nil {
+	if err := a.automations.SetEnabled(id, enable); err != nil {
 		return a.automationStoreErr(err)
 	}
 
