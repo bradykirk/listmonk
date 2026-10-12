@@ -510,37 +510,7 @@ func (m *Manager) worker() {
 			numMsg++
 
 			// Outgoing message.
-			out := models.Message{
-				From:        msg.from,
-				To:          []string{msg.to},
-				Subject:     msg.subject,
-				ContentType: msg.Campaign.ContentType,
-				Body:        msg.body,
-				AltBody:     msg.altBody,
-				Subscriber:  msg.Subscriber,
-				Campaign:    msg.Campaign,
-				Attachments: msg.Campaign.Attachments,
-			}
-
-			h := textproto.MIMEHeader{}
-			h.Set(models.EmailHeaderCampaignUUID, msg.Campaign.UUID)
-			h.Set(models.EmailHeaderSubscriberUUID, msg.Subscriber.UUID)
-
-			// Attach List-Unsubscribe headers?
-			if m.cfg.UnsubHeader {
-				h.Set("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
-				h.Set("List-Unsubscribe", `<`+msg.unsubURL+`>`)
-			}
-
-			// Attach any custom headers.
-			for _, set := range msg.headers {
-				for hdr, val := range set {
-					h.Add(hdr, val)
-				}
-			}
-
-			// Set the headers.
-			out.Headers = h
+			out := m.campaignOut(msg) // FORK(hcm): shared with SendCampaignMessage
 
 			// Push the message to the messenger.
 			err := m.messengers[msg.Campaign.Messenger].Push(out)
@@ -680,6 +650,62 @@ func (m *Manager) makeGnericFuncMap() template.FuncMap {
 	maps.Copy(funcs, sprigFuncs)
 
 	return funcs
+}
+
+// FORK(hcm): campaignOut builds the outgoing message and its headers from a
+// CampaignMessage. It is the code that worker() ran inline, moved unchanged so
+// SendCampaignMessage can share it.
+func (m *Manager) campaignOut(msg CampaignMessage) models.Message {
+	out := models.Message{
+		From:        msg.from,
+		To:          []string{msg.to},
+		Subject:     msg.subject,
+		ContentType: msg.Campaign.ContentType,
+		Body:        msg.body,
+		AltBody:     msg.altBody,
+		Subscriber:  msg.Subscriber,
+		Campaign:    msg.Campaign,
+		Attachments: msg.Campaign.Attachments,
+	}
+
+	h := textproto.MIMEHeader{}
+	h.Set(models.EmailHeaderCampaignUUID, msg.Campaign.UUID)
+	h.Set(models.EmailHeaderSubscriberUUID, msg.Subscriber.UUID)
+
+	// Attach List-Unsubscribe headers?
+	if m.cfg.UnsubHeader {
+		h.Set("List-Unsubscribe-Post", "List-Unsubscribe=One-Click")
+		h.Set("List-Unsubscribe", `<`+msg.unsubURL+`>`)
+	}
+
+	// Attach any custom headers.
+	for _, set := range msg.headers {
+		for hdr, val := range set {
+			h.Add(hdr, val)
+		}
+	}
+
+	// Set the headers.
+	out.Headers = h
+
+	return out
+}
+
+// FORK(hcm): ErrUnknownMessenger is returned by SendCampaignMessage.
+var ErrUnknownMessenger = errors.New("unknown messenger")
+
+// SendCampaignMessage sends one campaign message now and returns the
+// messenger's result. FORK(hcm): automations need the result; the queue in
+// PushCampaignMessage only logs it.
+func (m *Manager) SendCampaignMessage(msg CampaignMessage) error {
+	if err := m.attachMedia(msg.Campaign); err != nil {
+		return err
+	}
+	ms, ok := m.messengers[msg.Campaign.Messenger]
+	if !ok {
+		return ErrUnknownMessenger
+	}
+	return ms.Push(m.campaignOut(msg))
 }
 
 // attachMedia loads any media/attachments from the media store and attaches
