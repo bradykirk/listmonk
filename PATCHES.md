@@ -596,8 +596,94 @@ all system mail fail.
 
 Brand scope for lists, campaigns, templates, media, bounces, dashboard and
 analytics. Spec: `docs/superpowers/specs/2026-10-11-brands-design.md`. Every
-changed upstream line carries a `FORK(hcm)` comment. This section is completed
-in Task 12; the entries below are from Task 9.
+changed upstream line carries a `FORK(hcm)` comment (`grep -rn "FORK(hcm)" cmd internal
+models queries frontend/src` lists them all).
+
+**Branches.** `gunmade` is the plain fork (rules above) and is never touched by
+brands work. `hcm` branches from `gunmade` at `9ab53051` and carries all brands code.
+The Range Insiders (RI) Coolify app (`rangeinsiders-email`) builds from `hcm`.
+Rollback is to point the app back at `gunmade` and redeploy. Before the first deploy,
+the deployed RI commit must equal `9ab53051`, else rebase `hcm`.
+
+**Schema exception to rule 2 (spec D5).** Brands add three tables in a new Postgres
+schema `ext`: `ext.brands`, `ext.template_brands`, `ext.media_brands`
+(`internal/brands/schema.sql`). No upstream table is altered. No file is added to
+`internal/migrations` and `cmd/upgrade.go` is untouched. The schema is idempotent
+(`CREATE ... IF NOT EXISTS`) and `brands.Bootstrap` runs it at startup and in
+`--install`, before any query that names `ext` is prepared. Upstream migrations cannot
+conflict with it. The two ownership tables hold a foreign key to `templates(id)` and
+`media(id)` with `ON DELETE CASCADE`. `brands.SeedInitial` seeds brands ri, ta, ct and
+the template owners at startup, before the campaign manager starts. There is no seed
+SQL script.
+
+**Dry run.** `scripts/brands-dryrun.sql` is one read-only SELECT. Run it with psql on
+production before the deploy. It shows the brand of each list, the brand or `BLOCK`
+reason of each draft, scheduled, running and paused campaign, and the template seed
+owners. Every running or scheduled campaign must show a brand, not `BLOCK`.
+
+**Post-sync checklist (after every upstream sync).**
+
+1. `LISTMONK_TEST_DSN='postgres://lmtest:lmtest@127.0.0.1:55432/lmtest?sslmode=disable' go test ./...`
+   (the DB tests skip without the DSN; each makes a throwaway database from `schema.sql`).
+2. `bash scripts/brands-e2e.sh` against a fresh LOCAL instance only. Environment:
+   `LM_URL` (default `http://localhost:9000`), `LM_USER` and `LM_PASS` (super admin API
+   user and token), `LM_LOG` (server log path, needed for the startup-log and log
+   checks), and optional `LM_SMTP_CAPTURE` (file written by the local sink). The server
+   directory needs a writable `./uploads`. Start the sink with
+   `bash scripts/brands-e2e.sh --smtp-sink PORT FILE` and point the instance SMTP at
+   `127.0.0.1:PORT` (no auth, no TLS). Without the sink, set the SMTP port closed; the
+   opt-in mail checks then print SKIP.
+3. `bash scripts/brands-frontend-check.sh` must print PASS.
+4. Read the startup log. The line `brands: unclassified routes (fail closed with a brand
+   header): [...]` means upstream added an `/api` route that has no brand class. Add it
+   to `internal/brands/routes.go`. A fail-closed route returns an error in a brand view.
+   On a first start, also expect `brands: seeded initial brands (ri, ta, ct)`.
+
+**Known upstream bug (reported by the e2e script as `KNOWN-UPSTREAM`).** In
+`UpdateSubscriber`, the no-brand path passes an empty `permittedLists` to
+`update-subscriber-with-lists`, and the query reads an empty set as "all lists". A
+user with no list manage rights who sends `PUT /api/subscribers/:id` with `lists: []`
+deletes all subscriptions of that subscriber. This exists in upstream and the fork does
+not fix it. In a brand view the fork sends `{-1}` (`ScopedPermittedLists`), so the bug
+cannot occur there. The e2e script prints the line and does not fail on it.
+
+**Upstream files changed on `hcm` (new files excluded).** Each change is small and
+marked `FORK(hcm)`. If a hunk conflicts, keep the upstream code and re-apply the
+marked lines.
+
+| File | Change |
+| --- | --- |
+| `cmd/main.go` | Add `brands *brands.Service` to `App`. Bootstrap the `ext` schema and run `SeedInitial` before queries are prepared and before the manager starts. Build the service first so the manager store can use it. |
+| `cmd/install.go` | `brands.Bootstrap(db)` before the install queries, which reference `ext`. |
+| `cmd/init.go` | Wrap the manager store with `brands.WrapManagerStore` (the send guard: messenger, from domain, brand lists). |
+| `cmd/handlers.go` | Add the `X-Listmonk-Brand` CORS header. Add `a.brands.Middleware` after the auth-error check. Register `/api/ext/*` routes. At startup log `unclassified routes` for any `/api` route without a brand class. |
+| `cmd/campaigns.go` | Brand list checks on create and update. Brand filter on query and delete. Send guard before start or schedule and for test send. Brand scope applies even to `*_all` permissions. |
+| `cmd/subscribers.go` | Brand list checks on all list-taking endpoints. Refuse delete, blocklist and status change in a brand view. `ScopedPermittedLists` returns `{-1}` in a brand view. Brand-filtered activity and export. Opt-in hook mails only brand lists. |
+| `cmd/templates.go` | 404 outside the brand on by-id calls. Brand filter on list. Create with owner in one transaction. |
+| `cmd/media.go` | Brand filter on list. 404 outside the brand on by-id calls. Upload resolves the owner first and inserts media with its owner row. |
+| `cmd/bounce.go` | Brand filter on get, query, subscriber bounces and delete. |
+| `cmd/admin.go` | Dashboard counts and charts computed live for a brand view. |
+| `cmd/analytics.go` | Pass the brand lists to every analytics call. 404 for a campaign outside the brand. |
+| `cmd/dashboard_growth.go` | Pass the brand lists to the growth query. |
+| `internal/core/campaigns.go` | `QueryCampaigns` and `DeleteCampaigns` take `brandLists`. Add `brandArg`. |
+| `internal/core/media.go` | `QueryMedia` takes a brand slug. |
+| `internal/core/bounces.go` | `QueryBounces`, `GetBounce` and `DeleteBounces` take `brandLists`. |
+| `internal/core/subscribers.go` | `ExportSubscribersInBrand`. `DeleteSubscriberBounces` takes `brandLists`. |
+| `internal/core/analytics.go` | Every analytics function takes `brandLists`. |
+| `internal/core/dashboard.go` | `GetBrandDashboardCharts` and `GetBrandDashboardCounts`. |
+| `internal/core/dashboard_growth.go` | `GetDashboardGrowth` takes `brandLists`. |
+| `internal/core/dashboard_growth_db_test.go` | Pass `nil` brand. Install the `ext` schema in the test database. |
+| `models/queries.go` | Add the seven `Ext*` query fields (loaded from `queries/ext.sql`). |
+| `queries/campaigns.sql` | `$9` brand filter in `query-campaigns`. `$5` in `delete-campaigns`. A campaign is in the brand only if it has lists and all are brand lists. |
+| `queries/bounces.sql` | `$7` brand filter in `query-bounces`. `$3` in `delete-bounces` and `delete-bounces-by-subscriber`. |
+| `queries/media.sql` | `$5` brand slug filter in `query-media` (brand media plus shared). |
+| `queries/analytics.sql` | Brand list filter (`$2` or `$1`) on each analytics query. |
+| Frontend (all `FORK(hcm)`) | `src/api/index.js`, `src/App.vue`, `src/store/index.js`, `src/router/index.js`, `src/components/Navigation.vue`, `src/components/CampaignPreview.vue`, `src/views/{ListForm,Lists,Media,SubscriberForm,Subscribers,TemplateForm,Templates}.vue`. See "Frontend (Task 11)" below. |
+
+New files (no rebase risk): `internal/brands/*`, `internal/core/brand_create.go`,
+`cmd/brands.go`, `queries/ext.sql`, `frontend/src/brand.js`,
+`frontend/src/views/settings/Brands.vue`, `scripts/brands-e2e.sh`,
+`scripts/brands-frontend-check.sh`, `scripts/brands-dryrun.sql`.
 
 **Atomic create with ownership.** A new template or media file and its
 `ext.template_brands` / `ext.media_brands` row are written in one transaction
