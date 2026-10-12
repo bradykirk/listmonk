@@ -17,6 +17,7 @@ import (
 	"github.com/knadh/koanf/v2"
 	"github.com/knadh/listmonk/internal/auth"
 	"github.com/knadh/listmonk/internal/bounce"
+	"github.com/knadh/listmonk/internal/brands"
 	"github.com/knadh/listmonk/internal/buflog"
 	"github.com/knadh/listmonk/internal/captcha"
 	"github.com/knadh/listmonk/internal/core"
@@ -176,6 +177,18 @@ func init() {
 	} else {
 		// Before the queries are prepared, see if there are pending upgrades.
 		checkUpgrade(db)
+	}
+
+	// FORK(hcm): ext schema must exist before queries that reference it are prepared.
+	if err := brands.Bootstrap(db); err != nil {
+		lo.Fatalf("error bootstrapping brands schema: %v", err)
+	}
+	// FORK(hcm): seed before the campaign manager starts, or the send guard
+	// pauses every running campaign on the first deploy.
+	if seeded, err := brands.SeedInitial(db); err != nil {
+		lo.Fatalf("error seeding brands: %v", err)
+	} else if seeded {
+		lo.Println("brands: seeded initial brands (ri, ta, ct)")
 	}
 
 	// Read the SQL queries from the queries file.
