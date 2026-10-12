@@ -604,6 +604,18 @@ expect "all brands: POST campaign without template_id, ri-owned default -> 200" 
 admin DELETE "/api/campaigns/$(jget .data.id)"
 BRAND=ta req POST /api/campaigns "$(printf '%s' "$CJ_NT" | jq -c '.template_id = 0')"
 expect_msg "ta: POST campaign with template_id 0, default is ri-owned -> 400" 400 "default template does not belong"
+# Test send: rule 4 checks the template that renders (?template_id=), not the JSON body one.
+admin POST /api/campaigns "$(camp_json "tst-$RUN" "[$T1]" "$FROM_TA" | jq -c --argjson t "$TS" '.template_id = $t')"
+CTST=$(jget .data.id)
+STST=$(mk_sub "tst-$RUN@example.com" "[$T1]")
+TESTBODY=$(camp_json "tst-$RUN" "[$T1]" "$FROM_TA" | jq -c --argjson t "$TS" --arg e "tst-$RUN@example.com" '.template_id = $t | .subscribers = [$e]')
+admin POST "/api/campaigns/$CTST/test?template_id=$TD" "$TESTBODY"
+expect_msg "test send: shared template_id in the body, ?template_id= is an ri template -> 400" 400 "template belongs to another brand"
+admin POST "/api/campaigns/$CTST/test" "$TESTBODY"
+expect "test send: shared template, no override -> 200" 200
+admin DELETE "/api/campaigns/$CTST"
+admin DELETE "/api/subscribers/$STST"
+
 # A TA campaign with a NULL template falls back to the ri-owned default at send time (rule 4).
 # Explicit template_id 0 is stored as NULL (an omitted id stores the default's id).
 admin POST /api/campaigns "$(printf '%s' "$CJ_NT" | jq -c '.template_id = 0')"

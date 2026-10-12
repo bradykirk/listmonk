@@ -634,6 +634,13 @@ func (a *App) TestCampaign(c echo.Context) error {
 		return err
 	}
 
+	// FORK(hcm): the template that renders is tplID, else the stored template_id. Rule 4
+	// checks that same ID (0 means the default template, the conservative reading).
+	renderTplID := tplID
+	if renderTplID <= 0 {
+		renderTplID = int(camp.TemplateID.Int)
+	}
+
 	// Override certain values from the DB with incoming values.
 	camp.Name = req.Name
 	camp.Subject = req.Subject
@@ -657,7 +664,7 @@ func (a *App) TestCampaign(c echo.Context) error {
 		if err := a.queries.ExtCampaignListIDs.Select(&listIDs, id); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, "error loading campaign lists")
 		}
-		if err := a.brands.GuardSender(listIDs, camp.Messenger, camp.FromEmail, brands.TemplateRef{ID: int(camp.TemplateID.Int), Visual: camp.ContentType == models.CampaignContentTypeVisual}); err != nil {
+		if err := a.brands.GuardSender(listIDs, camp.Messenger, camp.FromEmail, brands.TemplateRef{ID: renderTplID, Visual: camp.ContentType == models.CampaignContentTypeVisual}); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}
