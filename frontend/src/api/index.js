@@ -625,3 +625,14 @@ export const setTemplateBrand = (id, brand) => http.put(`/api/ext/templates/${id
 export const setMediaBrand = (id, brand) => http.put(`/api/ext/media/${id}/brand`, { brand });
 
 export const getOwnership = () => http.get('/api/ext/ownership', { camelCase: false, disableToast: true });
+
+// FORK(hcm): Automations. Keys stay snake_case.
+export const getAutomations = () => http.get('/api/ext/automations', { camelCase: false, loading: models.campaigns });
+
+export const getAutomation = (id) => http.get(`/api/ext/automations/${id}`, { camelCase: false });
+
+export const createAutomation = (data) => http.post('/api/ext/automations', data, { camelCase: false });
+
+export const updateAutomation = (id, data) => http.put(`/api/ext/automations/${id}`, data, { camelCase: false });
+
+export const deleteAutomation = (id) => http.delete(`/api/ext/automations/${id}`);

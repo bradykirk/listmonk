@@ -71,6 +71,19 @@ const routes = [
     meta: { title: 'globals.terms.campaigns', group: 'campaigns' },
     component: () => import('../views/Campaigns.vue'),
   },
+  // FORK(hcm): Automations.
+  {
+    path: '/automations',
+    name: 'automations',
+    meta: { title: 'Automations', group: 'automations' },
+    component: () => import('../views/Automations.vue'),
+  },
+  {
+    path: '/automations/:id',
+    name: 'automation',
+    meta: { title: 'Automation', group: 'automations' },
+    component: () => import('../views/AutomationForm.vue'),
+  },
   {
     path: '/campaigns/media',
     name: 'media',

@@ -45,6 +45,10 @@
         label="List analytics" />
     </b-menu-item><!-- campaigns -->
 
+    <!-- FORK(hcm): Automations. -->
+    <b-menu-item v-if="$can('campaigns:get_all', 'campaigns:get')" :to="{ name: 'automations' }" tag="router-link"
+      :active="activeItem.automations" data-cy="automations" icon="email-outline" label="Automations" />
+
     <b-menu-item v-if="$can('users:*', 'roles:*')" :expanded="activeGroup.users" :active="activeGroup.users"
       data-cy="users" @update:active="(state) => toggleGroup('users', state)" icon="account-multiple"
       :label="$t('globals.terms.users')">
