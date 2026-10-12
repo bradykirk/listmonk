@@ -233,6 +233,16 @@ func (c *Core) GetSubscriberActivity(id int) (models.SubscriberActivity, error) 
 // repeatedly until there are nil subscribers. It's an iterator because exports can be extremely
 // large and may have to be fetched in batches from the DB and streamed somewhere.
 func (c *Core) ExportSubscribers(searchStr, query string, subIDs, listIDs []int, subStatus string, batchSize int) (func() ([]models.SubscriberExport, error), error) {
+	return c.exportSubscribers(c.q.QuerySubscribersForExport, searchStr, query, subIDs, listIDs, subStatus, batchSize)
+}
+
+// ExportSubscribersInBrand is ExportSubscribers for a brand view. // FORK(hcm)
+// listIDs must not be empty. A subscriber matches when on any of listIDs.
+func (c *Core) ExportSubscribersInBrand(searchStr, query string, subIDs, listIDs []int, subStatus string, batchSize int) (func() ([]models.SubscriberExport, error), error) {
+	return c.exportSubscribers(c.q.ExtQuerySubscribersForExport, searchStr, query, subIDs, listIDs, subStatus, batchSize)
+}
+
+func (c *Core) exportSubscribers(stmtTpl, searchStr, query string, subIDs, listIDs []int, subStatus string, batchSize int) (func() ([]models.SubscriberExport, error), error) {
 	if subIDs == nil {
 		subIDs = []int{}
 	}
@@ -246,7 +256,7 @@ func (c *Core) ExportSubscribers(searchStr, query string, subIDs, listIDs []int,
 		cond = query
 	}
 
-	stmt := strings.ReplaceAll(c.q.QuerySubscribersForExport, "%query%", cond)
+	stmt := strings.ReplaceAll(stmtTpl, "%query%", cond)
 
 	// Validate the tables used in the query.
 	if err := validateQueryTables(c.db, stmt, allowedSubQueryTables,

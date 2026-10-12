@@ -194,8 +194,23 @@ func (a *App) ExportSubscribers(c echo.Context) error {
 		}
 	}
 
+	// FORK(hcm): in a brand view, requested lists must be in the brand and a subscriber
+	// matches on any of them. The upstream query needs ALL, which no row satisfies for 2+ lists.
+	exportFn := a.core.ExportSubscribers
+	if _, ids, ok := brands.BrandFrom(c); ok {
+		if c.QueryParams().Has("list_id") {
+			req, _ := getQueryInts("list_id", c.QueryParams())
+			if out := brands.ListsOutside(req, ids); len(out) > 0 {
+				return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("Lists %v do not belong to the selected brand.", out))
+			}
+		}
+		// An empty set would export every subscriber, so use a list ID that matches nothing.
+		listIDs = brands.ScopedPermittedLists(listIDs)
+		exportFn = a.core.ExportSubscribersInBrand
+	}
+
 	// Get the batched export iterator.
-	exp, err := a.core.ExportSubscribers(searchStr, query, subIDs, listIDs, subStatus, a.cfg.DBBatchSize)
+	exp, err := exportFn(searchStr, query, subIDs, listIDs, subStatus, a.cfg.DBBatchSize)
 	if err != nil {
 		return err
 	}

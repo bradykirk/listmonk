@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"reflect"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -189,6 +190,49 @@ UPDATE subscriber_lists SET status = 'unconfirmed';`); err != nil {
 		t.Fatalf("TA lists: %v", got)
 	}
 	if got := get(ScopedPermittedLists(nil)); len(got) != 0 {
+		t.Fatalf("empty brand: %v", got)
+	}
+}
+
+func TestBrandExportAnySemantics(t *testing.T) {
+	db, c, _ := subSetup(t)
+	// Brand ta has lists 2 and 3; subscriber 1 is on 1 and 2, add 2 on list 3 only, 3 on list 1 only.
+	if _, err := db.Exec(`
+INSERT INTO lists (id, uuid, name, type, tags) VALUES (3, gen_random_uuid(), 'L3', 'public', '{ta}');
+INSERT INTO subscribers (id, uuid, email, first_name, status) VALUES
+    (2, gen_random_uuid(), 't3@example.com', 'T', 'enabled'),
+    (3, gen_random_uuid(), 'ri@example.com', 'R', 'enabled');
+INSERT INTO subscriber_lists (subscriber_id, list_id, status) VALUES (2, 3, 'confirmed'), (3, 1, 'confirmed');
+`); err != nil {
+		t.Fatal(err)
+	}
+	run := func(lists []int) []string {
+		exp, err := c.ExportSubscribersInBrand("", "", nil, lists, "", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var emails []string
+		for {
+			rows, err := exp()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rows == nil {
+				break
+			}
+			for _, r := range rows {
+				emails = append(emails, r.Email)
+			}
+		}
+		return emails
+	}
+	if got := run([]int{2, 3}); !reflect.DeepEqual(got, []string{"s@example.com", "t3@example.com"}) {
+		t.Fatalf("brand export: %v", got)
+	}
+	if got := run([]int{3}); !reflect.DeepEqual(got, []string{"t3@example.com"}) {
+		t.Fatalf("narrowed: %v", got)
+	}
+	if got := run(ScopedPermittedLists(nil)); len(got) != 0 {
 		t.Fatalf("empty brand: %v", got)
 	}
 }

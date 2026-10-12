@@ -197,3 +197,33 @@ views AS (
 SELECT JSON_BUILD_OBJECT('link_clicks', COALESCE((SELECT * FROM clicks), '[]'),
                          'campaign_views', COALESCE((SELECT * FROM views), '[]')
                         ) AS data;
+
+-- name: ext-query-subscribers-for-export
+-- raw: true
+-- FORK(hcm): copy of query-subscribers-for-export for a brand view. $1 = brand list IDs; a subscriber
+-- matches when on ANY of them (upstream uses = ALL). DISTINCT because the join yields one row per list.
+-- Unprepared statement for issuring arbitrary WHERE conditions for
+-- searching subscribers to do bulk CSV export.
+SELECT DISTINCT subscribers.id,
+       subscribers.uuid,
+       subscribers.email,
+       subscribers.name,
+       subscribers.first_name,
+       subscribers.last_name,
+       subscribers.status,
+       subscribers.attribs,
+       subscribers.created_at,
+       subscribers.updated_at
+       FROM subscribers
+    LEFT JOIN subscriber_lists
+    ON (
+        -- Optional list filtering.
+        (CASE WHEN CARDINALITY($1::INT[]) > 0 THEN true ELSE false END)
+        AND subscriber_lists.subscriber_id = subscribers.id
+        AND ($4 = '' OR subscriber_lists.status = $4::subscription_status)
+    )
+    WHERE subscriber_lists.list_id = ANY($1::INT[]) AND id > $2
+    AND (CASE WHEN CARDINALITY($3::INT[]) > 0 THEN id=ANY($3) ELSE true END)
+    AND (CASE WHEN $5 != '' THEN name ~* $5 OR email ~* $5 ELSE TRUE END)
+    AND %query%
+    ORDER BY subscribers.id ASC LIMIT (CASE WHEN $6 < 1 THEN NULL ELSE $6 END);
