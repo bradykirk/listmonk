@@ -227,7 +227,9 @@ func main() {
 		msgrs = append(initSMTPMessengers(), initPostbackMessengers(ko)...)
 
 		// Campaign manager.
-		mgr = initCampaignManager(msgrs, queries, urlCfg, core, media, i18n, ko)
+		// FORK(hcm): the send guard needs the brand service before the manager starts.
+		brandSvc = &brands.Service{Store: brands.NewStore(db), AllPerms: cfg.Permissions}
+		mgr      = initCampaignManager(msgrs, queries, urlCfg, core, media, i18n, ko, brandSvc)
 
 		// Bulk importer.
 		importer = initImporter(queries, db, core, i18n, ko)
@@ -289,7 +291,7 @@ func main() {
 		emailMsgr:  emailMsgr,
 		importer:   importer,
 		auth:       auth,
-		brands:     &brands.Service{Store: brands.NewStore(db), AllPerms: cfg.Permissions}, // FORK(hcm)
+		brands:     brandSvc, // FORK(hcm)
 		media:      media,
 		bounce:     bounce,
 		captcha:    initCaptcha(),

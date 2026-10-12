@@ -378,6 +378,21 @@ func (a *App) UpdateCampaignStatus(c echo.Context) error {
 		return err
 	}
 
+	// FORK(hcm): the send guard runs before a campaign starts or is scheduled.
+	if req.Status == models.CampaignStatusRunning || req.Status == models.CampaignStatusScheduled {
+		var listIDs []int
+		if err := a.queries.ExtCampaignListIDs.Select(&listIDs, id); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "error loading campaign lists")
+		}
+		camp, err := a.core.GetCampaign(id, "", "")
+		if err != nil {
+			return err
+		}
+		if err := a.brands.GuardCampaign(listIDs, camp.Messenger, camp.FromEmail); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+	}
+
 	// Update the campaign status in the DB.
 	out, err := a.core.UpdateCampaignStatus(id, req.Status)
 	if err != nil {
@@ -616,6 +631,17 @@ func (a *App) TestCampaign(c echo.Context) error {
 	for _, id := range req.MediaIDs {
 		if id > 0 {
 			camp.MediaIDs = append(camp.MediaIDs, int64(id))
+		}
+	}
+
+	// FORK(hcm): the test send must pass the same messenger and from-address rules.
+	{
+		var listIDs []int
+		if err := a.queries.ExtCampaignListIDs.Select(&listIDs, id); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, "error loading campaign lists")
+		}
+		if err := a.brands.GuardSender(listIDs, camp.Messenger, camp.FromEmail); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}
 

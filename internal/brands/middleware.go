@@ -25,6 +25,10 @@ type Service struct {
 	Store *Store
 	// AllPerms is the full permission catalog, given to a scoped super admin.
 	AllPerms map[string]struct{}
+
+	// load returns the brands and list tags for the send guard. Tests set it;
+	// when nil, the guard reads them from Store.
+	load func() ([]Brand, map[int][]string, error)
 }
 
 // Middleware reads the selected brand, classifies the route, and for Scoped
