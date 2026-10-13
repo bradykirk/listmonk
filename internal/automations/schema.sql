@@ -53,3 +53,5 @@ CREATE TABLE IF NOT EXISTS ext.automation_intents (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS automation_intents_created ON ext.automation_intents (created_at);
+-- swept_at rotates the sweep: rows that stay pending go to the back of the queue.
+ALTER TABLE ext.automation_intents ADD COLUMN IF NOT EXISTS swept_at TIMESTAMPTZ;

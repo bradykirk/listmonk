@@ -201,3 +201,27 @@ func TestSweepIntentsContinuesAfterError(t *testing.T) {
 		t.Fatal("the bad intent stays")
 	}
 }
+
+// Pending intents (no subscriber yet) must not block newer intents for later sweeps.
+func TestSweepIntentsRotatesPending(t *testing.T) {
+	db := testDB(t)
+	s, l, _ := setupEnabled(t, db, "single")
+	for i := 0; i < sweepBatch; i++ {
+		s.BeginIntents(fmt.Sprintf("p%d@example.com", i), []int{l})
+	}
+	s.BeginIntents("late@example.com", []int{l})
+	mkSub(t, db, "late@example.com", l, "unconfirmed")
+	db.MustExec(`UPDATE ext.automation_intents SET created_at = now() - interval '3 minutes'`)
+
+	if n, err := s.SweepIntents(2*time.Minute, 7*24*time.Hour); err != nil || n != 0 {
+		t.Fatalf("first sweep: %d %v", n, err)
+	}
+	if n, err := s.SweepIntents(2*time.Minute, 7*24*time.Hour); err != nil || n != 1 {
+		t.Fatalf("second sweep must reach the newer intent: %d %v", n, err)
+	}
+	var left int
+	db.Get(&left, `SELECT COUNT(*) FROM ext.automation_intents`)
+	if left != sweepBatch {
+		t.Fatalf("left %d, want %d pending", left, sweepBatch)
+	}
+}

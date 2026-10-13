@@ -185,14 +185,17 @@ mk_sub() { # EMAIL LISTS_JSON
 }
 
 # mk_api_user NAME USER_PERMS_JSON LIST_PERMS_JSON: creates a role pair and an API
-# user. Sets NEW_USER and NEW_TOKEN (never printed).
+# user. LIST_PERMS_JSON "none" gives the user no list role. Sets NEW_USER and
+# NEW_TOKEN (never printed).
 mk_api_user() {
-  local ur lr
+  local ur lr=
   admin POST /api/roles/users "$(jq -nc --arg n "$1-role-$RUN" --argjson p "$2" '{name:$n, permissions:$p}')"
   ur=$(jget .data.id)
-  admin POST /api/roles/lists "$(jq -nc --arg n "$1-lrole-$RUN" --argjson l "$L" --argjson p "$3" \
-    '{name:$n, lists:[{id:$l, permissions:$p}]}')"
-  lr=$(jget .data.id)
+  if [ "$3" != "none" ]; then
+    admin POST /api/roles/lists "$(jq -nc --arg n "$1-lrole-$RUN" --argjson l "$L" --argjson p "$3" \
+      '{name:$n, lists:[{id:$l, permissions:$p}]}')"
+    lr=$(jget .data.id)
+  fi
   admin POST /api/users "$(jq -nc --arg u "$1$RUN" --argjson ur "${ur:-0}" --argjson lr "${lr:-0}" \
     '{username:$u, name:$u, type:"api", status:"enabled", user_role_id:$ur, list_role_id:$lr}')"
   NEW_USER=$(jget .data.username)
@@ -268,6 +271,19 @@ man PUT "/api/ext/automations/$AID" "$(auto_put true)"
 expect_msg "enable by a user with campaigns:manage only -> 403" 403 "campaigns:send"
 admin GET "/api/ext/automations/$AID"
 jq_ok "automation is still disabled after the refused enable" '.data.automation.enabled == false'
+
+# Blanket campaign permissions work with no list role, as on campaigns.
+mk_api_user e2eall '["campaigns:get_all","campaigns:manage_all"]' none && {
+  ALL_USER=$NEW_USER ALL_TOKEN=$NEW_TOKEN
+  U=$ALL_USER P=$ALL_TOKEN BRAND="" req GET /api/ext/automations
+  jq_ok "campaigns:get_all user with no list role sees the automation" 'any(.data[]; .id == $a)' --argjson a "$AID"
+  U=$ALL_USER P=$ALL_TOKEN BRAND="" req GET "/api/ext/automations/$AID"
+  expect "campaigns:get_all user with no list role: GET -> 200" 200
+}
+mk_api_user e2enone '["campaigns:get","campaigns:manage"]' none && {
+  U=$NEW_USER P=$NEW_TOKEN BRAND="" req GET "/api/ext/automations/$AID"
+  expect "campaigns:get user with no list role: GET -> 403" 403
+}
 
 # ---------- 3: marker and guard ----------
 
@@ -346,6 +362,8 @@ if [ "$n" = "1" ] && [ "$all" = "1" ]; then pass "one mail to $E1 with X-Listmon
 else fail "one mail to $E1 with X-Listmonk-Campaign: step uuid" "with header: $n, all mails to the address: $all"; fi
 if grep -qF "/subscription/$CUUID/" "$LM_SMTP_CAPTURE"; then pass "the mail has the step campaign's unsubscribe link"
 else fail "the mail has the step campaign's unsubscribe link" "/subscription/$CUUID/ not in captured mail"; fi
+admin GET "/api/campaigns/$CID/analytics/summary"
+jq_ok "the step report counts the automation send (sent 1)" '.data.sent == 1 and .data.delivered == 1'
 
 # ---------- 6: import does not enroll ----------
 

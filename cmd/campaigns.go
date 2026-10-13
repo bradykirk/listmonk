@@ -818,6 +818,19 @@ func (a *App) GetCampaignAnalyticsSummary(c echo.Context) error {
 	out.CampaignID = id
 	out.Sent = camp.Sent
 	out.ToSend = camp.ToSend
+
+	// FORK(hcm): a step campaign stays a draft. Its sends are in ext.automation_sends.
+	if _, ok, err := a.automations.StepOwner(id); err != nil {
+		a.log.Printf("error checking automation step %d: %v", id, err)
+		return echo.NewHTTPError(http.StatusInternalServerError, "error loading automation step")
+	} else if ok {
+		n, err := a.automations.SentByCampaign(id)
+		if err != nil {
+			a.log.Printf("error counting automation sends %d: %v", id, err)
+			return echo.NewHTTPError(http.StatusInternalServerError, "error loading automation step")
+		}
+		out.Sent, out.ToSend = n, n
+	}
 	out.IndividualTracking = a.cfg.Privacy.IndividualTracking
 
 	// Delivered = sent - bounced subscribers, floored at 0 as bounce webhooks

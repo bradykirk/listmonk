@@ -151,7 +151,7 @@ func (a *App) GetAutomations(c echo.Context) error {
 	out := make([]autoListItem, 0, len(all))
 	for _, s := range all {
 		// Like campaigns, a user without the *_all list permissions sees only permitted lists.
-		if !userHasList(c, s.ListID) {
+		if !userHasList(c, s.ListID, auth.PermTypeGet) {
 			continue
 		}
 		out = append(out, autoListItem{Summary: s, Brand: brands.BrandOfList(tags[s.ListID], bs).Slug})
@@ -161,7 +161,7 @@ func (a *App) GetAutomations(c echo.Context) error {
 
 // GetAutomation returns one automation with its steps and counts.
 func (a *App) GetAutomation(c echo.Context) error {
-	auto, steps, err := a.automationInBrand(c, getID(c))
+	auto, steps, err := a.automationInBrand(c, getID(c), auth.PermTypeGet)
 	if err != nil {
 		return err
 	}
@@ -226,7 +226,7 @@ func (a *App) CreateAutomation(c echo.Context) error {
 	if !listInSelectedBrand(c, list.ID) {
 		return echo.NewHTTPError(http.StatusBadRequest, "Select a list of this brand.")
 	}
-	if err := a.automationListPerm(c, list.ID); err != nil {
+	if err := a.automationListPerm(c, list.ID, auth.PermTypeManage); err != nil {
 		return err
 	}
 
@@ -298,7 +298,7 @@ func (a *App) CreateAutomation(c echo.Context) error {
 // UpdateAutomation changes the name, list, step delays and enabled state.
 func (a *App) UpdateAutomation(c echo.Context) error {
 	id := getID(c)
-	cur, steps, err := a.automationInBrand(c, id)
+	cur, steps, err := a.automationInBrand(c, id, auth.PermTypeManage)
 	if err != nil {
 		return err
 	}
@@ -321,7 +321,7 @@ func (a *App) UpdateAutomation(c echo.Context) error {
 		if !listInSelectedBrand(c, req.ListID) {
 			return echo.NewHTTPError(http.StatusBadRequest, "Select a list of this brand.")
 		}
-		if err := a.automationListPerm(c, req.ListID); err != nil {
+		if err := a.automationListPerm(c, req.ListID, auth.PermTypeManage); err != nil {
 			return err
 		}
 	}
@@ -390,7 +390,7 @@ func (a *App) automationEnableCheck(listID int, steps []automations.Step) error 
 // DeleteAutomation deletes a disabled automation, then its step campaigns.
 func (a *App) DeleteAutomation(c echo.Context) error {
 	id := getID(c)
-	if _, _, err := a.automationInBrand(c, id); err != nil {
+	if _, _, err := a.automationInBrand(c, id, auth.PermTypeManage); err != nil {
 		return err
 	}
 
@@ -450,8 +450,9 @@ func (a *App) EnrollAutomation(c echo.Context) error {
 }
 
 // automationInBrand loads an automation. It returns 404 when the automation
-// is missing or, with a brand selected, its list is outside the brand.
-func (a *App) automationInBrand(c echo.Context, id int) (automations.Automation, []automations.Step, error) {
+// is missing or, with a brand selected, its list is outside the brand. types is
+// the operation (auth.PermTypeGet or auth.PermTypeManage) for the permission check.
+func (a *App) automationInBrand(c echo.Context, id int, types auth.PermType) (automations.Automation, []automations.Step, error) {
 	auto, steps, err := a.automations.Get(id)
 	if err != nil {
 		return auto, nil, a.automationStoreErr(err)
@@ -459,25 +460,33 @@ func (a *App) automationInBrand(c echo.Context, id int) (automations.Automation,
 	if !listInSelectedBrand(c, auto.ListID) {
 		return auto, nil, echo.NewHTTPError(http.StatusNotFound, "The automation was not found.")
 	}
-	if err := a.automationListPerm(c, auto.ListID); err != nil {
+	if err := a.automationListPerm(c, auto.ListID, types); err != nil {
 		return auto, nil, err
 	}
 	return auto, steps, nil
 }
 
-// automationListPerm returns 403 when the user has no get or manage permission
-// on the list. This is the list check that campaign routes do (checkCampaignPerm).
-func (a *App) automationListPerm(c echo.Context, listID int) error {
-	if !userHasList(c, listID) {
+// automationListPerm returns 403 when the user may not do the operation on an
+// automation of the list. This is the check that campaign routes do (checkCampaignPerm).
+func (a *App) automationListPerm(c echo.Context, listID int, types auth.PermType) error {
+	if !userHasList(c, listID, types) {
 		return echo.NewHTTPError(http.StatusForbidden, a.i18n.Ts("globals.messages.permissionDenied", "name", "list"))
 	}
 	return nil
 }
 
-// userHasList reports whether the user may get or manage the list, as
-// checkCampaignPerm decides it.
-func userHasList(c echo.Context, listID int) bool {
+// userHasList reports whether the user may do the operation on an automation
+// of the list, as checkCampaignPerm decides it: the blanket campaigns:get_all
+// (get) or campaigns:manage_all (manage) permission, else a list permission.
+func userHasList(c echo.Context, listID int, types auth.PermType) bool {
 	user := auth.GetUser(c)
+	if types&auth.PermTypeGet != 0 {
+		if user.HasPerm(auth.PermCampaignsGetAll) {
+			return true
+		}
+	} else if user.HasPerm(auth.PermCampaignsManageAll) {
+		return true
+	}
 	hasAll, ids := user.GetPermittedLists(auth.PermTypeGet | auth.PermTypeManage)
 	if hasAll {
 		return true

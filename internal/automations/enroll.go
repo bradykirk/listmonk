@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -222,18 +223,23 @@ func (s *Store) ResolveIntents(ids []int64) (int, error) {
 const sweepBatch = 100
 
 // SweepIntents deletes intents older than maxAge, then resolves at most sweepBatch of those
-// older than minAge. One failing intent does not stop the others; the first error is
-// returned after the loop.
+// older than minAge. Intents never swept go first, then the least recently swept, so
+// pending rows cannot starve newer ones. One failing intent does not stop the others;
+// the first error is returned after the loop.
 func (s *Store) SweepIntents(minAge, maxAge time.Duration) (enrolled int, err error) {
 	if _, err := s.db.Exec(`DELETE FROM ext.automation_intents WHERE created_at < now() - make_interval(secs => $1)`,
 		maxAge.Seconds()); err != nil {
 		return 0, err
 	}
 	var ids []int64
-	if err := s.db.Select(&ids, `SELECT id FROM ext.automation_intents WHERE created_at < now() - make_interval(secs => $1) ORDER BY id LIMIT $2`,
+	if err := s.db.Select(&ids, `UPDATE ext.automation_intents SET swept_at = clock_timestamp()
+		WHERE id IN (SELECT id FROM ext.automation_intents WHERE created_at < now() - make_interval(secs => $1)
+			ORDER BY swept_at NULLS FIRST, id LIMIT $2)
+		RETURNING id`,
 		minAge.Seconds(), sweepBatch); err != nil {
 		return 0, err
 	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var first error
 	for _, id := range ids {
 		n, err := s.resolveOne(id)
