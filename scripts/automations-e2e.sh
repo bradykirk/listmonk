@@ -485,6 +485,9 @@ admin PUT "/api/ext/automations/$AID" "$(auto_put false)"
 expect "disable -> 200" 200
 man PUT "/api/campaigns/$CID" "$(camp_put 'subject=Edited while disabled')"
 expect "disabled: campaigns:manage-only user edits the email -> 200" 200
+admin DELETE "/api/lists/$L"
+if [ "$CODE" != "200" ]; then pass "a list with an automation cannot be deleted (HTTP $CODE)"
+else fail "a list with an automation cannot be deleted" "got 200"; fi
 admin DELETE "/api/ext/automations/$AID"
 expect "delete the disabled automation -> 200" 200
 admin GET "/api/campaigns/$CID"
@@ -496,6 +499,8 @@ else
 fi
 admin GET "/api/ext/automations/$AID"
 expect "the automation is gone (GET -> 404)" 404
+admin DELETE "/api/lists/$L"
+expect "after the automation delete, the list delete works -> 200" 200
 
 # ---------- summary ----------
 

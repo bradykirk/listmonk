@@ -146,3 +146,42 @@ func TestListChangeMovesStepCampaigns(t *testing.T) {
 		t.Fatalf("owner: %+v", info)
 	}
 }
+
+// A list with an automation cannot be deleted; the step campaign must not become an orphan draft.
+func TestListDeleteRefusedWithAutomation(t *testing.T) {
+	db := testDB(t)
+	s := NewStore(db)
+	l := mkList(t, db, "TA", "single", "ta")
+	c := mkCampaign(t, db, l)
+	a, _ := s.Create("a", l, c)
+	if _, err := db.Exec(`DELETE FROM lists WHERE id=$1`, l); err == nil {
+		t.Fatal("deleting a list with an automation must fail")
+	}
+	if _, _, err := s.Get(a.ID); err != nil {
+		t.Fatalf("the automation must stay: %v", err)
+	}
+	if _, ok, err := s.StepOwner(c); err != nil || !ok {
+		t.Fatalf("the step campaign must stay a step: %v %v", ok, err)
+	}
+	if _, err := s.Delete(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM lists WHERE id=$1`, l); err != nil {
+		t.Fatalf("after the automation delete, the list delete must work: %v", err)
+	}
+}
+
+// Bootstrap converts an older ON DELETE CASCADE list constraint to RESTRICT.
+func TestBootstrapUpgradesListCascade(t *testing.T) {
+	db := testDB(t)
+	db.MustExec(`ALTER TABLE ext.automations DROP CONSTRAINT automations_list_id_fkey`)
+	db.MustExec(`ALTER TABLE ext.automations ADD CONSTRAINT automations_list_id_fkey
+		FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE CASCADE`)
+	if err := Bootstrap(db); err != nil {
+		t.Fatal(err)
+	}
+	var del string
+	if err := db.Get(&del, `SELECT confdeltype::text FROM pg_constraint WHERE conname='automations_list_id_fkey'`); err != nil || del != "r" {
+		t.Fatalf("want RESTRICT (r), got %q %v", del, err)
+	}
+}

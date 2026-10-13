@@ -3,11 +3,22 @@
 CREATE TABLE IF NOT EXISTS ext.automations (
   id          SERIAL PRIMARY KEY,
   name        TEXT NOT NULL,
-  list_id     INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  list_id     INTEGER NOT NULL REFERENCES lists(id) ON DELETE RESTRICT,
   enabled     BOOLEAN NOT NULL DEFAULT false,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- A list with an automation cannot be deleted: a cascade would leave the step campaigns
+-- as orphan drafts. Delete the automation first. Older installs had ON DELETE CASCADE.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'automations_list_id_fkey'
+             AND conrelid = 'ext.automations'::regclass AND confdeltype = 'c') THEN
+    ALTER TABLE ext.automations DROP CONSTRAINT automations_list_id_fkey;
+    ALTER TABLE ext.automations ADD CONSTRAINT automations_list_id_fkey
+      FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE RESTRICT;
+  END IF;
+END $$;
 -- At most one enabled automation per list.
 CREATE UNIQUE INDEX IF NOT EXISTS automations_one_enabled_per_list
   ON ext.automations (list_id) WHERE enabled;
