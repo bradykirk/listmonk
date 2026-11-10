@@ -20,3 +20,6 @@ CREATE TABLE IF NOT EXISTS ext.media_brands (
   media_id    INT PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
   brand_slug  TEXT REFERENCES ext.brands(slug) ON UPDATE CASCADE
 );
+
+-- Per-brand link host (2026-11-10). Empty = the instance root URL.
+ALTER TABLE ext.brands ADD COLUMN IF NOT EXISTS link_host TEXT NOT NULL DEFAULT '';

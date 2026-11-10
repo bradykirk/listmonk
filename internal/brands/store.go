@@ -22,6 +22,8 @@ type Brand struct {
 	Messengers  pq.StringArray `db:"messengers" json:"messengers"`
 	FromDomains pq.StringArray `db:"from_domains" json:"from_domains"`
 	SortOrder   int            `db:"sort_order" json:"sort_order"`
+	// LinkHost is "https://host" or "" (the instance root URL). See linkhost.go.
+	LinkHost string `db:"link_host" json:"link_host"`
 }
 
 // Bootstrap creates the ext schema. It runs before queries are prepared,
@@ -80,13 +82,13 @@ func NewStore(db *sqlx.DB) *Store { return &Store{db: db} }
 
 func (s *Store) All() ([]Brand, error) {
 	out := []Brand{}
-	err := s.db.Select(&out, `SELECT slug, name, list_tags, messengers, from_domains, sort_order FROM ext.brands ORDER BY sort_order, slug`)
+	err := s.db.Select(&out, `SELECT slug, name, list_tags, messengers, from_domains, sort_order, link_host FROM ext.brands ORDER BY sort_order, slug`)
 	return out, err
 }
 
 func (s *Store) Get(slug string) (Brand, bool, error) {
 	var b Brand
-	err := s.db.Get(&b, `SELECT slug, name, list_tags, messengers, from_domains, sort_order FROM ext.brands WHERE slug = $1`, slug)
+	err := s.db.Get(&b, `SELECT slug, name, list_tags, messengers, from_domains, sort_order, link_host FROM ext.brands WHERE slug = $1`, slug)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Brand{}, false, nil
 	}
@@ -97,11 +99,11 @@ func (s *Store) Upsert(b Brand) error {
 	// The array columns are NOT NULL; a nil slice binds as NULL.
 	normalize(&b)
 	_, err := s.db.Exec(`
-		INSERT INTO ext.brands (slug, name, list_tags, messengers, from_domains, sort_order)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO ext.brands (slug, name, list_tags, messengers, from_domains, sort_order, link_host)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (slug) DO UPDATE SET name = $2, list_tags = $3, messengers = $4,
-		  from_domains = $5, sort_order = $6, updated_at = now()`,
-		b.Slug, b.Name, b.ListTags, b.Messengers, b.FromDomains, b.SortOrder)
+		  from_domains = $5, sort_order = $6, link_host = $7, updated_at = now()`,
+		b.Slug, b.Name, b.ListTags, b.Messengers, b.FromDomains, b.SortOrder, b.LinkHost)
 	return err
 }
 
