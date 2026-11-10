@@ -321,6 +321,7 @@ func initHTTPHandlers(e *echo.Echo, a *App) {
 
 		// Public health API endpoint.
 		g.GET("/health", a.HealthCheck)
+		g.GET(brands.LinkCheckPath+":token", noIndex(a.LinkHostCheck)) // FORK(hcm): per-brand link host
 		g.GET("/robots.txt", a.RobotsTxt)
 
 		// 404 pages.

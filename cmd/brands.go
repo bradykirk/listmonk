@@ -245,10 +245,11 @@ func (a *App) GetBrands(c echo.Context) error {
 
 // CreateBrand handles POST /api/ext/brands.
 func (a *App) CreateBrand(c echo.Context) error {
-	var b brands.Brand
-	if err := c.Bind(&b); err != nil {
+	var req brands.BrandRequest // FORK(hcm): link_host
+	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.Ts("globals.messages.invalidData")+": "+err.Error())
 	}
+	b := req.Brand
 	b.Slug = strings.TrimSpace(b.Slug)
 	if err := brands.Validate(&b); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -258,16 +259,20 @@ func (a *App) CreateBrand(c echo.Context) error {
 	} else if ok {
 		return echo.NewHTTPError(http.StatusConflict, "brand already exists")
 	}
+	if err := applyLinkHost(&b, req.LinkHost, ""); err != nil {
+		return err
+	}
 	return a.saveBrand(c, b)
 }
 
 // UpdateBrand handles PUT /api/ext/brands/:slug. The slug cannot change.
 func (a *App) UpdateBrand(c echo.Context) error {
 	slug := c.Param("slug")
-	var b brands.Brand
-	if err := c.Bind(&b); err != nil {
+	var req brands.BrandRequest // FORK(hcm): link_host
+	if err := c.Bind(&req); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, a.i18n.Ts("globals.messages.invalidData")+": "+err.Error())
 	}
+	b := req.Brand
 	if b.Slug != "" && b.Slug != slug {
 		return echo.NewHTTPError(http.StatusBadRequest, "the brand slug cannot change")
 	}
@@ -275,10 +280,14 @@ func (a *App) UpdateBrand(c echo.Context) error {
 	if err := brands.Validate(&b); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if _, ok, err := a.brands.Store.Get(slug); err != nil {
+	prev, ok, err := a.brands.Store.Get(slug)
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "error loading brand")
 	} else if !ok {
 		return echo.NewHTTPError(http.StatusNotFound, "unknown brand")
+	}
+	if err := applyLinkHost(&b, req.LinkHost, prev.LinkHost); err != nil {
+		return err
 	}
 	return a.saveBrand(c, b)
 }

@@ -41,6 +41,10 @@
         </b-taglist>
       </b-table-column>
 
+      <b-table-column v-slot="props" field="link_host" label="Link host">
+        {{ props.row.link_host }}
+      </b-table-column>
+
       <b-table-column v-slot="props" field="list_count" label="Lists" numeric sortable>
         {{ props.row.list_count }}
       </b-table-column>
@@ -105,6 +109,12 @@
                 placeholder="example.com" data-cy="brand-form-domains" />
             </b-field>
 
+            <b-field label="Link host" label-position="on-border"
+              :message="linkHostHelp">
+              <b-input v-model="form.link_host" name="link_host" placeholder="https://news.example.com"
+                data-cy="brand-form-link-host" />
+            </b-field>
+
             <b-field label="Sort order" label-position="on-border">
               <b-numberinput v-model="form.sort_order" name="sort_order" controls-position="compact"
                 data-cy="brand-form-sort" />
@@ -137,8 +147,13 @@ const blank = () => ({
   list_tags: [],
   messengers: [],
   from_domains: [],
+  link_host: '',
   sort_order: 0,
 });
+
+const linkHostHelp = 'Optional. Campaign email links (unsubscribe, view in browser, tracking) use this host '
+  + 'instead of the root URL. The host must already point to this Listmonk; saving checks it. '
+  + 'Keep a host routed for good once emails used it.';
 
 export default Vue.extend({
   name: 'Brands',
@@ -147,6 +162,7 @@ export default Vue.extend({
 
   data() {
     return {
+      linkHostHelp,
       isLoading: false,
       isSaving: false,
       isFormVisible: false,
@@ -179,6 +195,7 @@ export default Vue.extend({
         list_tags: [...(b.list_tags || [])],
         messengers: [...(b.messengers || [])],
         from_domains: [...(b.from_domains || [])],
+        link_host: b.link_host || '',
         sort_order: b.sort_order || 0,
       };
       this.isFormVisible = true;
