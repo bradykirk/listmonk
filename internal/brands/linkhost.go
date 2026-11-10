@@ -59,9 +59,22 @@ func (s *Service) LinkResolver(campaignLists func(id int) ([]int, error)) func(*
 		if err != nil {
 			return "", fmt.Errorf("link host: loading brands: %w", err)
 		}
-		unbranded := true
+		// With no link host on any brand there is nothing to resolve, so nothing
+		// can fail (old campaigns with deleted or unbranded lists keep working).
+		if !slices.ContainsFunc(b, func(x Brand) bool { return x.LinkHost != "" }) {
+			return "", nil
+		}
+		// A deleted list (id 0 or gone) has no brand; the send guard handles it for
+		// sends. Views of old campaigns use the lists that still exist.
+		live := make([]int, 0, len(ids))
 		for _, id := range ids {
-			if tags, ok := t[id]; !ok || BrandOfList(tags, b).Slug != "" || BrandOfList(tags, b).Ambiguous {
+			if _, ok := t[id]; ok && id > 0 {
+				live = append(live, id)
+			}
+		}
+		unbranded := true
+		for _, id := range live {
+			if lb := BrandOfList(t[id], b); lb.Slug != "" || lb.Ambiguous {
 				unbranded = false
 				break
 			}
@@ -69,7 +82,7 @@ func (s *Service) LinkResolver(campaignLists func(id int) ([]int, error)) func(*
 		if unbranded {
 			return "", nil
 		}
-		slug, reason := CampaignBrand(ids, t, b)
+		slug, reason := CampaignBrand(live, t, b)
 		if slug == "" {
 			return "", fmt.Errorf("link host: campaign %d: %s", c.ID, reason)
 		}

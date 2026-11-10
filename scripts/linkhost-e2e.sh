@@ -54,6 +54,11 @@ st=$(echo "SELECT string_agg(list_id || ':' || status, ',' ORDER BY list_id) FRO
 body=$(curl -s "$LM_URL/campaign/$CBAD/$SUB")
 if ! echo "$body" | grep -q "U=http"; then pass "ta lists with a messenger outside the brand render no links (fail closed)"; else fail "fail closed" "$(echo "$body" | grep -o 'U=[^<]*')"; fi
 
+# An old campaign whose list was deleted still renders its browser view.
+echo "DELETE FROM lists WHERE id = 902" | psql_
+code=$(curl -s -o /dev/null -w '%{http_code}' "$LM_URL/campaign/$CRI/$SUB")
+[ "$code" = 200 ] && pass "view of a campaign whose list was deleted still works" || fail "view after list delete" "HTTP $code"
+
 code=$(curl -s -o /dev/null -w '%{http_code}' "$LM_URL/ext/link-host-check/0000")
 [ "$code" = 404 ] && pass "check route refuses an unknown token" || fail "check route refuses an unknown token" "HTTP $code"
 

@@ -64,7 +64,11 @@ func TestLinkHostFor(t *testing.T) {
 		{"mixed brands", linkSvc(host, nil), lists(3, 17), "email-ta", "", true},
 		{"unbranded", linkSvc(host, nil), lists(40), "email", "", false},
 		{"no lists", linkSvc(host, nil), lists(), "email-ta", "", false},
-		{"missing list", linkSvc(host, nil), lists(999), "email-ta", "", true},
+		{"deleted list only", linkSvc(host, nil), lists(0), "email-ta", "", false},
+		{"ta list + deleted list", linkSvc(host, nil), lists(17, 0, 999), "email-ta", host, false},
+		{"no brand has a host, deleted list", linkSvc("", nil), lists(0), "email-ri", "", false},
+		{"no brand has a host, mixed lists", linkSvc("", nil), lists(3, 17), "email-ri", "", false},
+		{"no brand has a host, load ok", linkSvc("", nil), lists(17), "email", "", false},
 		{"load error", linkSvc(host, errors.New("db down")), lists(17), "email-ta", "", true},
 		{"lists error", linkSvc(host, nil), func(int) ([]int, error) { return nil, errors.New("db down") }, "email-ta", "", true},
 	}

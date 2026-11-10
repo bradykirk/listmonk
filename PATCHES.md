@@ -808,7 +808,7 @@ tracked links, the view pixel, and the `List-Unsubscribe` header. Brands with an
 
 **Resolution.** `brands.Service.LinkResolver` (wired as `manager.Config.LinkHostFor`)
 runs once per campaign compile (`TemplateFuncs(c)`). It reads the brands fresh (no
-cache), finds the brand from the campaign's list IDs by campaign ID (on the send path
+cache) and returns "" at once when no brand has a link_host. Otherwise it finds the brand from the campaign's live list IDs by campaign ID (deleted lists are ignored; on the send path
 `Campaign.Lists` is empty), and returns the brand's `link_host` only when the campaign's
 messenger is one of the brand's messengers. Any mismatch or lookup error fails closed:
 `newPipe` pauses the campaign; test sends, automations and previews return the error.
