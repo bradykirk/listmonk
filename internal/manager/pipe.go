@@ -41,6 +41,15 @@ func (m *Manager) newPipe(c *models.Campaign) (*pipe, error) {
 		return nil, err
 	}
 
+	// FORK(hcm): fail closed on an unresolved link host. Pause through the
+	// status path, like the brand send guard, so the scan does not retry it.
+	if c.LinkErr != nil {
+		if err := m.store.UpdateCampaignStatus(c.ID, models.CampaignStatusPaused); err != nil {
+			m.log.Printf("error pausing campaign %s: %v", c.Name, err)
+		}
+		return nil, fmt.Errorf("paused campaign %s: %w", c.Name, c.LinkErr)
+	}
+
 	// Load any media/attachments.
 	if err := m.attachMedia(c); err != nil {
 		return nil, err

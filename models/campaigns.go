@@ -79,6 +79,12 @@ type Campaign struct {
 	// Fetched bodies of the attachments.
 	Attachments []Attachment `json:"-" db:"-"`
 
+	// FORK(hcm): per-brand link host, set by manager.TemplateFuncs when the
+	// campaign is compiled. LinkRoot "" = the instance root URL. LinkErr stops
+	// every message of this compile (fail closed).
+	LinkRoot string `json:"-" db:"-"`
+	LinkErr  error  `json:"-" db:"-"`
+
 	// Pseudofield for getting the total number of subscribers
 	// in searches and queries.
 	Total int `db:"total" json:"-"`

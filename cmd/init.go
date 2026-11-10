@@ -594,6 +594,13 @@ func initCampaignManager(msgrs []manager.Messenger, q *models.Queries, u *UrlCon
 		lo.Println("running in passive mode. won't process campaigns.")
 	}
 
+	// FORK(hcm): the campaign's list IDs, for the send guard and the link host resolver.
+	campaignLists := func(id int) ([]int, error) {
+		var ids []int
+		err := q.ExtCampaignListIDs.Select(&ids, id)
+		return ids, err
+	}
+
 	mgr := manager.New(manager.Config{
 		BatchSize:             ko.Int("app.batch_size"),
 		Concurrency:           ko.Int("app.concurrency"),
@@ -609,17 +616,14 @@ func initCampaignManager(msgrs []manager.Messenger, q *models.Queries, u *UrlCon
 		MessageURL:            u.MessageURL,
 		ArchiveURL:            u.ArchiveURL,
 		RootURL:               u.RootURL,
+		LinkHostFor:           brandSvc.LinkResolver(campaignLists), // FORK(hcm): per-brand link host
 		UnsubHeader:           ko.Bool("privacy.unsubscribe_header"),
 		SlidingWindow:         ko.Bool("app.message_sliding_window"),
 		SlidingWindowDuration: ko.Duration("app.message_sliding_window_duration"),
 		SlidingWindowRate:     ko.Int("app.message_sliding_window_rate"),
 		ScanInterval:          time.Second * 5,
 		ScanCampaigns:         !ko.Bool("passive"),
-	}, brands.WrapManagerStore(newManagerStore(q, co, md), brandSvc, func(id int) ([]int, error) { // FORK(hcm): send guard
-		var ids []int
-		err := q.ExtCampaignListIDs.Select(&ids, id)
-		return ids, err
-	}, lo), i, lo)
+	}, brands.WrapManagerStore(newManagerStore(q, co, md), brandSvc, campaignLists, lo), i, lo) // FORK(hcm): send guard
 
 	// Attach all messengers to the campaign manager.
 	for _, m := range msgrs {

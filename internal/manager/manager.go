@@ -149,6 +149,10 @@ type Config struct {
 	RootURL               string
 	UnsubHeader           bool
 
+	// FORK(hcm): LinkHostFor returns a campaign's brand link host ("" = RootURL)
+	// or an error (do not send). Nil = always RootURL. See linkhost_fork.go.
+	LinkHostFor func(*models.Campaign) (string, error)
+
 	// Interval to scan the DB for active campaign checkpoints.
 	ScanInterval time.Duration
 
@@ -369,6 +373,7 @@ func (m *Manager) GetTpl(id int) (*models.Template, error) {
 // TemplateFuncs returns the template functions to be applied into
 // compiled campaign templates.
 func (m *Manager) TemplateFuncs(c *models.Campaign) template.FuncMap {
+	m.resolveLinks(c) // FORK(hcm): per-brand link host
 	f := template.FuncMap{
 		"TrackLink": func(url string, msg *CampaignMessage) string {
 			if m.cfg.DisableTracking {
@@ -380,7 +385,7 @@ func (m *Manager) TemplateFuncs(c *models.Campaign) template.FuncMap {
 				subUUID = dummyUUID
 			}
 
-			return m.trackLink(url, msg.Campaign.UUID, subUUID)
+			return m.trackLink(url, msg.Campaign.UUID, subUUID, m.linkFmt(c, m.cfg.LinkTrackURL)) // FORK(hcm)
 		},
 		"TrackView": func(msg *CampaignMessage) template.HTML {
 			if m.cfg.DisableTracking {
@@ -393,7 +398,7 @@ func (m *Manager) TemplateFuncs(c *models.Campaign) template.FuncMap {
 			}
 
 			return template.HTML(fmt.Sprintf(`<img src="%s" alt="" />`,
-				fmt.Sprintf(m.cfg.ViewTrackURL, msg.Campaign.UUID, subUUID)))
+				fmt.Sprintf(m.linkFmt(c, m.cfg.ViewTrackURL), msg.Campaign.UUID, subUUID))) // FORK(hcm)
 		},
 		"UnsubscribeURL": func(msg *CampaignMessage) string {
 			return msg.unsubURL
@@ -404,16 +409,16 @@ func (m *Manager) TemplateFuncs(c *models.Campaign) template.FuncMap {
 		"OptinURL": func(msg *CampaignMessage) string {
 			// Add list IDs.
 			// TODO: Show private lists list on optin e-mail
-			return fmt.Sprintf(m.cfg.OptinURL, msg.Subscriber.UUID, "")
+			return fmt.Sprintf(m.linkFmt(c, m.cfg.OptinURL), msg.Subscriber.UUID, "") // FORK(hcm)
 		},
 		"MessageURL": func(msg *CampaignMessage) string {
-			return fmt.Sprintf(m.cfg.MessageURL, c.UUID, msg.Subscriber.UUID)
+			return fmt.Sprintf(m.linkFmt(c, m.cfg.MessageURL), c.UUID, msg.Subscriber.UUID) // FORK(hcm)
 		},
 		"ArchiveURL": func() string {
-			return m.cfg.ArchiveURL
+			return m.linkFmt(c, m.cfg.ArchiveURL) // FORK(hcm)
 		},
 		"RootURL": func() string {
-			return m.cfg.RootURL
+			return m.linkFmt(c, m.cfg.RootURL) // FORK(hcm)
 		},
 	}
 
@@ -576,7 +581,8 @@ func (m *Manager) getCurrentCampaigns() ([]int64, []int64) {
 
 // trackLink register a URL and return its UUID to be used in message templates
 // for tracking links.
-func (m *Manager) trackLink(url, campUUID, subUUID string) string {
+// FORK(hcm): linkTrackURL is the campaign's format (per-brand link host).
+func (m *Manager) trackLink(url, campUUID, subUUID, linkTrackURL string) string {
 	if m.cfg.DisableTracking {
 		return url
 	}
@@ -586,7 +592,7 @@ func (m *Manager) trackLink(url, campUUID, subUUID string) string {
 	m.linksMut.RLock()
 	if uu, ok := m.links[url]; ok {
 		m.linksMut.RUnlock()
-		return fmt.Sprintf(m.cfg.LinkTrackURL, uu, campUUID, subUUID)
+		return fmt.Sprintf(linkTrackURL, uu, campUUID, subUUID)
 	}
 	m.linksMut.RUnlock()
 
@@ -603,7 +609,7 @@ func (m *Manager) trackLink(url, campUUID, subUUID string) string {
 	m.links[url] = uu
 	m.linksMut.Unlock()
 
-	return fmt.Sprintf(m.cfg.LinkTrackURL, uu, campUUID, subUUID)
+	return fmt.Sprintf(linkTrackURL, uu, campUUID, subUUID)
 }
 
 // sendNotif sends a notification to registered admin e-mails.
