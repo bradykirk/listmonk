@@ -9,8 +9,8 @@ import (
 
 func TestNormalizeLinkHost(t *testing.T) {
 	ok := map[string]string{
-		"":                                 "",
-		"  ":                               "",
+		"":                                  "",
+		"  ":                                "",
 		"https://News.TacticalAdvisor.net/": "https://news.tacticaladvisor.net",
 		"https://news.tacticaladvisor.net":  "https://news.tacticaladvisor.net",
 	}
