@@ -792,3 +792,59 @@ if an EmailOctopus tag or the text "EmailOctopus" is left. The output is
 "Powered by EmailOctopus" link was removed by hand). It still contains
 `[[SENDER_INFO]]`, so the TA automation cannot be enabled until that marker is replaced
 with the postal address.
+
+## Per-brand link host (hcm branch, Nov 2026)
+
+A brand can carry a `link_host` (for example `https://news.tacticaladvisor.net`). Every
+Listmonk URL in that brand's campaign emails then uses that host instead of the
+instance root URL: unsubscribe, manage, view in browser, opt-in, archive, `RootURL`,
+tracked links, the view pixel, and the `List-Unsubscribe` header. Brands with an empty
+`link_host` are unchanged (a golden test pins the root-URL output). Plan:
+`docs/superpowers/plans/2026-11-10-brand-link-host.md` (Codex adversarial review, 2 rounds).
+
+**Schema.** `ext.brands.link_host TEXT NOT NULL DEFAULT ''`, added by
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in `internal/brands/schema.sql` (run by
+`brands.Bootstrap`). Old code reads the brand columns by name, so it ignores the column.
+
+**Resolution.** `brands.Service.LinkResolver` (wired as `manager.Config.LinkHostFor`)
+runs once per campaign compile (`TemplateFuncs(c)`). It reads the brands fresh (no
+cache), finds the brand from the campaign's list IDs by campaign ID (on the send path
+`Campaign.Lists` is empty), and returns the brand's `link_host` only when the campaign's
+messenger is one of the brand's messengers. Any mismatch or lookup error fails closed:
+`newPipe` pauses the campaign; test sends, automations and previews return the error.
+The result is frozen on the campaign (`Campaign.LinkRoot`) for the life of the pipe.
+
+**Save check.** A new `link_host` is saved only when
+`GET https://<host>/ext/link-host-check/<lookup>` (public route, no redirects, TLS
+verified, 5 s) returns the paired response token that only this process holds for 30 s.
+A host routed to another Listmonk, or a server that echoes the request, is refused. An
+absent `link_host` in a PUT keeps the stored value; `""` clears it.
+
+**Operating rules.**
+- A host that appeared in delivered mail stays routed (DNS, Coolify domain, valid
+  certificate) for good: its unsubscribe links must keep working.
+- A `link_host` change applies to campaigns compiled after it. Do not pause and resume a
+  running campaign to change it (upstream pause/resume can skip fetched recipients); let
+  it finish.
+- Restarts for this feature happen only with no campaign running.
+
+**Tests.** `go test ./internal/brands/ ./internal/manager/` (DB tests need
+`LISTMONK_TEST_DSN`). Local e2e: `bash scripts/linkhost-e2e.sh` against a fresh local
+instance (sets `link_host` in the DB, because the save check needs a real HTTPS host).
+
+**New files.** `internal/brands/linkhost.go`, `linkcheck.go` (+ tests),
+`internal/manager/linkhost_fork.go` (+ test), `cmd/linkhost.go`, `scripts/linkhost-e2e.sh`.
+
+**Upstream files changed.** If a hunk conflicts, keep the upstream code and re-apply the
+marked lines.
+
+| File | Change |
+| --- | --- |
+| `models/campaigns.go` | `Campaign.LinkRoot` and `Campaign.LinkErr` (`db:"-" json:"-"`). |
+| `internal/manager/manager.go` | `Config.LinkHostFor`. `TemplateFuncs` calls `resolveLinks(c)`; every URL func formats through `linkFmt(c, ...)`. `trackLink` takes the campaign's link format as a parameter. |
+| `internal/manager/message.go` | `NewCampaignMessage` returns `c.LinkErr`; the unsubscribe URL uses `linkFmt`. |
+| `internal/manager/pipe.go` | `newPipe` pauses a campaign with `LinkErr` and returns an error. |
+| `cmd/init.go` | `campaignLists` shared by the send guard and `LinkHostFor: brandSvc.LinkResolver(campaignLists)`. |
+| `cmd/handlers.go` | Public route `GET /ext/link-host-check/:token`. |
+| `cmd/brands.go` | Create/Update bind `brands.BrandRequest` and call `applyLinkHost`. |
+| `frontend/src/views/settings/Brands.vue` | "Link host" form field and table column. |
